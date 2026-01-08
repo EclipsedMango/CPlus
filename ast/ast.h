@@ -1,22 +1,62 @@
 #ifndef C__AST_H
 #define C__AST_H
 
-#include "../lexer/lexer.h"
+// needs to match lexer
+typedef enum BinaryOp {
+    // arithmetic
+    BIN_ADD,
+    BIN_SUB,
+    BIN_MUL,
+    BIN_DIV,
+    BIN_MOD,
+
+    // comparison
+    BIN_EQUAL,
+    BIN_GREATER,
+    BIN_LESS,
+    BIN_GREATER_EQ,
+    BIN_LESS_EQ,
+
+    // assignment
+    BIN_ASSIGN
+} BinaryOp;
+
+// needs to match lexer
+typedef enum TypeKind {
+    TYPE_INT,
+    TYPE_LONG,
+    TYPE_FLOAT,
+    TYPE_DOUBLE,
+    TYPE_STRING,
+    TYPE_VOID
+} TypeKind;
+
+// needs to match lexer
+typedef enum UnaryOp {
+    UNARY_NEG,
+    UNARY_NOT
+} UnaryOp;
 
 typedef struct ExprNode {
     enum {
         EXPR_NUMBER,
+        EXPR_STRING_LITERAL,
         EXPR_VAR,
-        EXPR_BINOP
+        EXPR_BINOP,
+        EXPR_CALL
     } kind;
     union {
-        float value;              // EXPR_NUMBER
-        char *name;               // EXPR_VAR
+        char *text;
         struct {
             struct ExprNode *left;
             struct ExprNode *right;
-            TokenType op;         // +, -, *, /
-        } binop;                  // EXPR_BINOP
+            BinaryOp op;
+        } binop;
+        struct {
+            char *function_name;
+            struct ExprNode **args;
+            int arg_count;
+        } call;
     };
 } ExprNode;
 
@@ -24,20 +64,47 @@ typedef struct StmtNode {
     enum {
         STMT_RETURN,
         STMT_VAR_DECL,
-        STMT_EXPR
+        STMT_EXPR,
+        STMT_COMPOUND,
     } kind;
     union {
         struct {
             ExprNode *expr;
-        } return_stmt; // return <expr>;
+        } return_stmt;
+
+        struct {
+            TypeKind type;
+            char *name;
+            ExprNode *initializer;  // NULL if no initializer
+        } var_decl;
+
+        struct {
+            ExprNode *expr;
+        } expr_stmt;
+
+        struct {
+            struct StmtNode **stmts;
+            int count;
+        } compound;
     };
 } StmtNode;
 
+typedef struct ParamNode {
+    TypeKind type;
+    char *name;
+} ParamNode;
+
 typedef struct FunctionNode {
     char *name;
-    TokenType return_type;
-    StmtNode **body;
-    int body_count;
+    TypeKind return_type;
+    ParamNode *params;
+    int param_count;
+    StmtNode *body;
 } FunctionNode;
+
+typedef struct ProgramNode {
+    FunctionNode **functions;
+    int function_count;
+} ProgramNode;
 
 #endif //C__AST_H
