@@ -1,4 +1,4 @@
-This is run via gcc.
+This is ran via gcc.
 
 first cmd:
 gcc main.c lexer/* parser/* -o mycc
