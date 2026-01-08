@@ -53,7 +53,6 @@ typedef enum {
 
 typedef struct Token {
     TokenType type;
-    float value;   // for numeric literals
     char *lexeme;  // for identifiers and string literals
 } Token;
 

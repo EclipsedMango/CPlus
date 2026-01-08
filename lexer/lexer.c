@@ -26,12 +26,12 @@ static Token lex_identifier_or_keyword(FILE *f, const int first) {
     buf[i] = '\0';
     ungetc(c, f);
 
-    if (strcmp(buf, "int") == 0)    return (Token){ .type = TOK_INT, .lexeme = nullptr };
-    if (strcmp(buf, "long") == 0)   return (Token){ .type = TOK_LONG, .lexeme = nullptr };
-    if (strcmp(buf, "float") == 0)  return (Token){ .type = TOK_FLOAT, .lexeme = nullptr };
-    if (strcmp(buf, "double") == 0) return (Token){ .type = TOK_DOUBLE, .lexeme = nullptr };
-    if (strcmp(buf, "string") == 0) return (Token){ .type = TOK_STRING_KW, .lexeme = nullptr };
-    if (strcmp(buf, "return") == 0) return (Token){ .type = TOK_RETURN, .lexeme = nullptr };
+    if (strcmp(buf, "int") == 0)    return (Token){ .type = TOK_INT, .lexeme = strdup("int") };
+    if (strcmp(buf, "long") == 0)   return (Token){ .type = TOK_LONG, .lexeme = strdup("long") };
+    if (strcmp(buf, "float") == 0)  return (Token){ .type = TOK_FLOAT, .lexeme = strdup("float") };
+    if (strcmp(buf, "double") == 0) return (Token){ .type = TOK_DOUBLE, .lexeme = strdup("double") };
+    if (strcmp(buf, "string") == 0) return (Token){ .type = TOK_STRING_KW, .lexeme = strdup("string") };
+    if (strcmp(buf, "return") == 0) return (Token){ .type = TOK_RETURN, .lexeme = strdup("return") };
 
     return (Token){
         .type = TOK_IDENTIFIER,
@@ -40,7 +40,8 @@ static Token lex_identifier_or_keyword(FILE *f, const int first) {
 }
 
 static Token lex_number_literal(FILE *f, int c) {
-    float value = 0.0f;
+    char buf[64]; // for literal text
+    int i = 0;
     bool hasDecimal = false;
 
     // read digits
@@ -52,19 +53,18 @@ static Token lex_number_literal(FILE *f, int c) {
             }
 
             hasDecimal = true;
-            c = fgetc(f);
-            continue;
         }
-        value = value * 10 + (float)(c - '0');
+
+        buf[i++] = c;
         c = fgetc(f);
     }
 
+    buf[i] = '\0';
     ungetc(c, f);
 
     return (Token){
         .type = hasDecimal ? TOK_DECI_NUMBER : TOK_NUMBER,
-        .value = value,
-        .lexeme = nullptr
+        .lexeme = strdup(buf)
     };
 }
 
@@ -116,36 +116,36 @@ static Token lex_operator_or_punct(FILE *f, const int c) {
         // operators with possible lookahead
         case '=':
             next = fgetc(f);
-            if (next == '=') return (Token){TOK_EQUAL_EQUAL};
+            if (next == '=') return (Token){TOK_EQUAL_EQUAL, .lexeme = strdup("==")};
             ungetc(next, f);
-            return (Token){TOK_ASSIGN};
+            return (Token){TOK_ASSIGN, .lexeme = strdup("=")};
 
         case '>':
             next = fgetc(f);
-            if (next == '=') return (Token){TOK_GREATER_EQUALS};
+            if (next == '=') return (Token){TOK_GREATER_EQUALS, .lexeme = strdup(">=")};
             ungetc(next, f);
-            return (Token){TOK_GREATER};
+            return (Token){TOK_GREATER, .lexeme = strdup(">")};
 
         case '<':
             next = fgetc(f);
-            if (next == '=') return (Token){TOK_LESS_EQUALS};
+            if (next == '=') return (Token){TOK_LESS_EQUALS, .lexeme = strdup("<=")};
             ungetc(next, f);
-            return (Token){TOK_LESS};
+            return (Token){TOK_LESS, .lexeme = strdup("<")};
 
             // single-char operators
-        case '+': return (Token){TOK_PLUS};
-        case '-': return (Token){TOK_SUBTRACT};
-        case '*': return (Token){TOK_MULTIPLY};
-        case '/': return (Token){TOK_DIVIDE};
-        case '%': return (Token){TOK_MODULO};
+        case '+': return (Token){.type = TOK_PLUS, .lexeme = strdup("+")};
+        case '-': return (Token){.type = TOK_SUBTRACT, .lexeme = strdup("-")};
+        case '*': return (Token){.type = TOK_MULTIPLY, .lexeme = strdup("*")};
+        case '/': return (Token){.type = TOK_DIVIDE, .lexeme = strdup("/")};
+        case '%': return (Token){.type = TOK_MODULO, .lexeme = strdup("%")};
 
             // punctuation / delimiters
-        case '(': return (Token){TOK_LPAREN};
-        case ')': return (Token){TOK_RPAREN};
-        case '{': return (Token){TOK_LBRACE};
-        case '}': return (Token){TOK_RBRACE};
-        case ',': return (Token){TOK_COMMA};
-        case ';': return (Token){TOK_SEMI};
+        case '(': return (Token){TOK_LPAREN, .lexeme = strdup("(")};
+        case ')': return (Token){TOK_RPAREN, .lexeme = strdup(")")};
+        case '{': return (Token){TOK_LBRACE, .lexeme = strdup("{")};
+        case '}': return (Token){TOK_RBRACE, .lexeme = strdup("}")};
+        case ',': return (Token){TOK_COMMA, .lexeme = strdup(",")};
+        case ';': return (Token){TOK_SEMI, .lexeme = strdup(";")};
 
         default:
             return (Token){TOK_EOF}; // should never happen
@@ -155,7 +155,7 @@ static Token lex_operator_or_punct(FILE *f, const int c) {
 Token next_token(FILE *f) {
     const int c = skip_whitespace(f);
 
-    if (c == EOF) return (Token){TOK_EOF, 0, nullptr};
+    if (c == EOF) return (Token){TOK_EOF, nullptr};
     if (c == '"') return lex_string_literal(f);
 
     if (isdigit(c)) return lex_number_literal(f, c);
