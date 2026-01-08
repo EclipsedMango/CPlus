@@ -1,0 +1,8 @@
+struct Person {
+    int age = 23;
+    string name = "Bob";
+};
+
+impl Person {
+    void Greetings();
+};
