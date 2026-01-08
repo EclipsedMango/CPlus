@@ -15,41 +15,114 @@ static ExprNode *parse_expression_internal(void);
 static ExprNode *parse_term(void);
 static ExprNode *parse_factor(void);
 
-static ExprNode *make_number(const float value) {
+// helpers
+static ExprNode *make_number(const char *text);
+static ExprNode *make_var(const char *name);
+static ExprNode *make_binop(TokenType op, ExprNode *left, ExprNode *right);
+static ExprNode *make_string_literal(const char *text);
+static ExprNode *make_call(const char *name, ExprNode **args, int count);
+
+static BinaryOp token_to_binop(const TokenType token) {
+    switch (token) {
+        case TOK_PLUS: return BIN_ADD;
+        case TOK_SUBTRACT: return BIN_SUB;
+        case TOK_MULTIPLY: return BIN_MUL;
+        case TOK_DIVIDE: return BIN_DIV;
+        case TOK_MODULO: return BIN_MOD;
+        case TOK_EQUAL_EQUAL: return BIN_EQUAL;
+        case TOK_GREATER: return BIN_GREATER;
+        case TOK_LESS: return BIN_LESS;
+        case TOK_GREATER_EQUALS: return BIN_GREATER_EQ;
+        case TOK_LESS_EQUALS: return BIN_LESS_EQ;
+        case TOK_ASSIGN: return BIN_ASSIGN;
+        default:
+            fprintf(stderr, "invalid binary operator token: %d\n", token);
+            exit(1);
+    }
+}
+
+static ExprNode *make_number(const char *text) {
     ExprNode *e = malloc(sizeof(ExprNode));
     e->kind = EXPR_NUMBER;
-    e->value = value;
+    e->text = strdup(text);
     return e;
 }
 
 static ExprNode *make_var(const char *name) {
     ExprNode *e = malloc(sizeof(ExprNode));
     e->kind = EXPR_VAR;
-    e->name = strdup(name);
+    e->text = strdup(name);
     return e;
 }
 
 static ExprNode *make_binop(const TokenType op, ExprNode *left, ExprNode *right) {
     ExprNode *e = malloc(sizeof(ExprNode));
     e->kind = EXPR_BINOP;
-    e->binop.op = op;
+    e->binop.op = token_to_binop(op);
     e->binop.left = left;
     e->binop.right = right;
     return e;
 }
 
-/* factor -> NUMBER | IDENTIFIER | '(' expression ')' */
+static ExprNode *make_string_literal(const char *text) {
+    ExprNode *e = malloc(sizeof(ExprNode));
+    e->kind = EXPR_STRING_LITERAL;
+    e->text = strdup(text);
+    return e;
+}
+
+static ExprNode *make_call(const char *name, ExprNode **args, const int count) {
+    ExprNode *e = malloc(sizeof(ExprNode));
+    e->kind = EXPR_CALL;
+    e->call.function_name = strdup(name);
+    e->call.args = args;
+    e->call.arg_count = count;
+    return e;
+}
+
+// factor -> NUMBER | IDENTIFIER | '(' expression ')'
 static ExprNode *parse_factor(void) {
     const Token t = current_token();
 
     if (t.type == TOK_NUMBER || t.type == TOK_DECI_NUMBER) {
         advance();
-        return make_number(t.value);
+        return make_number(t.lexeme);
+    }
+
+    if (t.type == TOK_STRING_LITERAL) {
+        advance();
+        return make_string_literal(t.lexeme);
     }
 
     if (t.type == TOK_IDENTIFIER) {
+        const Token name_tok = t;
         advance();
-        return make_var(t.lexeme);
+
+        if (current_token().type == TOK_LPAREN) {
+            advance();
+
+            // parse arguments
+            ExprNode **args = malloc(sizeof(ExprNode*) * 16);
+            int arg_count = 0;
+
+            if (current_token().type != TOK_RPAREN) {
+                do {
+                    args[arg_count++] = parse_expression();
+
+                    if (current_token().type == TOK_COMMA) {
+                        advance();
+                    } else {
+                        break;
+                    }
+                } while (current_token().type != TOK_RPAREN);
+            }
+
+            expect(TOK_RPAREN);
+
+            return make_call(name_tok.lexeme, args, arg_count);
+        }
+
+        return make_var(name_tok.lexeme);
     }
 
     if (t.type == TOK_LPAREN) {
@@ -63,7 +136,7 @@ static ExprNode *parse_factor(void) {
     exit(1);
 }
 
-/* term -> factor ((* | /) factor)* */
+// term -> factor ((* | /) factor)*
 static ExprNode *parse_term(void) {
     ExprNode *left = parse_factor();
 
@@ -77,7 +150,7 @@ static ExprNode *parse_term(void) {
     return left;
 }
 
-/* expression -> term ((+ | -) term)* */
+// expression -> term ((+ | -) term)*
 static ExprNode *parse_expression_internal(void) {
     ExprNode *left = parse_term();
 

@@ -4,12 +4,16 @@
 #include "../ast/ast.h"
 
 // entry
-FunctionNode *parse_program(void);
+ProgramNode *parse_program(void);
 
 // grammar
 FunctionNode *parse_function(void);
-StmtNode     *parse_statement(void);
-StmtNode     *parse_return_stmt(void);
 ExprNode     *parse_expression(void);
+
+StmtNode *parse_statement(void);
+StmtNode *parse_return_stmt(void);
+StmtNode *parse_var_decl(void);
+StmtNode *parse_expr_stmt(void);
+StmtNode *parse_compound_stmt(void);
 
 #endif //C__PARSER_H
