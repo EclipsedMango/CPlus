@@ -41,13 +41,17 @@ static Token lex_identifier_or_keyword(FILE *f, const int first) {
 
 static Token lex_number_literal(FILE *f, int c) {
     float value = 0.0f;
-    int hasDecimal = 0;
+    bool hasDecimal = false;
 
     // read digits
     while (c != EOF && (isdigit(c) || c == '.')) {
         if (c == '.') {
-            if (hasDecimal) { fprintf(stderr,"invalid number\n"); exit(1);}
-            hasDecimal = 1;
+            if (hasDecimal) {
+                fprintf(stderr,"invalid number\n");
+                exit(1);
+            }
+
+            hasDecimal = true;
             c = fgetc(f);
             continue;
         }
@@ -154,11 +158,7 @@ Token next_token(FILE *f) {
     if (c == EOF) return (Token){TOK_EOF, 0, nullptr};
     if (c == '"') return lex_string_literal(f);
 
-    if (isdigit(c) || c == '-') {
-        const Token token = lex_number_literal(f, c);
-        if (token.type != TOK_INVALID) return token;
-    }
-
+    if (isdigit(c)) return lex_number_literal(f, c);
     if (isalpha(c)) return lex_identifier_or_keyword(f, c);
 
     const Token t = lex_operator_or_punct(f, c);

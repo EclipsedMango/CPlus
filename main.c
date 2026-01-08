@@ -1,5 +1,7 @@
 #include <stdio.h>
+
 #include "parser/parser.h"
+#include "parser/token_utils.h"
 
 int main(const int argc, char *argv[]) {
     if (argc < 2) {
@@ -22,10 +24,8 @@ int main(const int argc, char *argv[]) {
 
     set_current_file(f);
 
-    advance();
-    const int result = parse_program();
-
-    printf("program returns %d\n", result);
+    const FunctionNode *program = parse_program();
+    printf("Parsed function: %s\n", program->name);
 
     fclose(f);
     return 0;
