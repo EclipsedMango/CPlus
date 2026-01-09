@@ -59,11 +59,13 @@ Symbol* scope_lookup_recursive(const Scope* scope, const char* name) {
     return nullptr;
 }
 
-static void analyze_expression(const ExprNode* expr, Scope* scope) {
+static void analyze_expression(ExprNode* expr, Scope* scope) {
     switch (expr->kind) {
         case EXPR_NUMBER:
+            expr->type = TYPE_INT;
+            break;
         case EXPR_STRING_LITERAL:
-            // literals dont need name resolution
+            expr->type = TYPE_STRING;
             break;
         case EXPR_VAR: {
             // look up variable
@@ -72,12 +74,24 @@ static void analyze_expression(const ExprNode* expr, Scope* scope) {
                 fprintf(stderr, "Error: undefined variable '%s'\n", expr->text);
                 exit(1);
             }
+
+            expr->type = sym->type;
             break;
         }
         case EXPR_BINOP:
             // analyze both operands
             analyze_expression(expr->binop.left, scope);
             analyze_expression(expr->binop.right, scope);
+
+            const TypeKind lhs = expr->binop.left->type;
+            const TypeKind rhs = expr->binop.right->type;
+
+            if (lhs != rhs) {
+                fprintf(stderr, "Error: type mismatch in binary expression\n");
+                exit(1);
+            }
+
+            expr->type = lhs;
             break;
         case EXPR_CALL: {
             // look up function
@@ -96,6 +110,8 @@ static void analyze_expression(const ExprNode* expr, Scope* scope) {
             for (int i = 0; i < expr->call.arg_count; i++) {
                 analyze_expression(expr->call.args[i], scope);
             }
+
+            expr->type = func_sym->type;
             break;
         }
         default: {
@@ -132,6 +148,10 @@ static void analyze_statement(const StmtNode* stmt, Scope* scope) {
             // analyze initializer if present
             if (stmt->var_decl.initializer) {
                 analyze_expression(stmt->var_decl.initializer, scope);
+
+                if (stmt->var_decl.initializer->type != stmt->var_decl.type) {
+                    fprintf(stderr, "Error: type mismatch in assignment\n");
+                }
             }
             break;
         }

@@ -50,6 +50,7 @@ typedef struct ExprNode {
     SourceLocation location;
     union {
         char *text;
+        TypeKind type;
         struct {
             struct ExprNode *left;
             struct ExprNode *right;
