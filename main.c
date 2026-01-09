@@ -1,5 +1,6 @@
 #include <stdio.h>
 
+#include "codegen/codegen.h"
 #include "parser/parser.h"
 #include "parser/token_utils.h"
 #include "semantic/semantic.h"
@@ -27,11 +28,14 @@ int main(const int argc, char *argv[]) {
     lexer_init(filename);
     set_current_file(f);
 
-    const ProgramNode *program = parse_program();
+    ProgramNode *program = parse_program();
     printf("parsing complete\n");
 
     analyze_program(program);
     printf("semantic analysis complete\n");
+
+    codegen_program(program, "output.o");
+    printf("codegen complete\n");
 
     fclose(f);
     return 0;

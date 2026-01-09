@@ -48,9 +48,9 @@ typedef struct ExprNode {
         EXPR_CALL
     } kind;
     SourceLocation location;
+    TypeKind type;
     union {
         char *text;
-        TypeKind type;
         struct {
             struct ExprNode *left;
             struct ExprNode *right;
