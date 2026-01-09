@@ -7,11 +7,12 @@
 /*
  * grammar implemented:
  *
- * expression  -> term ((+ | -) term)*
- * term        -> factor ((* | /) factor)*
- * factor      -> NUMBER | IDENTIFIER | '(' expression ')'
+ * expression  -> comparison
+ * comparison  -> additive ((< | > | <= | >= | ==) additive)*
+ * additive    -> term ((+ | -) term)*
+ * term        -> factor ((* | / | %) factor)*
  */
-static ExprNode *parse_expression_internal(void);
+static ExprNode *parse_additive(void);
 static ExprNode *parse_term(void);
 static ExprNode *parse_factor(void);
 
@@ -127,7 +128,7 @@ static ExprNode *parse_factor(void) {
 
     if (t.type == TOK_LPAREN) {
         advance();
-        ExprNode *expr = parse_expression_internal();
+        ExprNode *expr = parse_additive();
         expect(TOK_RPAREN);
         return expr;
     }
@@ -151,7 +152,7 @@ static ExprNode *parse_term(void) {
 }
 
 // expression -> term ((+ | -) term)*
-static ExprNode *parse_expression_internal(void) {
+static ExprNode *parse_additive(void) {
     ExprNode *left = parse_term();
 
     while (current_token().type == TOK_PLUS || current_token().type == TOK_SUBTRACT) {
@@ -164,7 +165,23 @@ static ExprNode *parse_expression_internal(void) {
     return left;
 }
 
+static ExprNode *parse_comparison(void) {
+    ExprNode *left = parse_additive();
+
+    while (current_token().type == TOK_LESS || current_token().type == TOK_GREATER || current_token().type == TOK_LESS_EQUALS ||
+           current_token().type == TOK_GREATER_EQUALS || current_token().type == TOK_EQUAL_EQUAL) {
+
+        const TokenType tok = current_token().type;
+        advance();
+
+        ExprNode *right = parse_additive();
+        left = make_binop(tok, left, right);
+    }
+
+    return left;
+}
+
 // public entry point
 ExprNode *parse_expression(void) {
-    return parse_expression_internal();
+    return parse_comparison();
 }

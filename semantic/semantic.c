@@ -5,6 +5,23 @@
 #include <stdlib.h>
 #include <string.h>
 
+static int is_arithmetic_op(const BinaryOp op) {
+    return op == BIN_ADD || op == BIN_SUB || op == BIN_MUL || op == BIN_DIV || op == BIN_MOD;
+}
+
+static int is_comparison_op(const BinaryOp op) {
+    return op == BIN_EQUAL || op == BIN_GREATER || op == BIN_LESS || op == BIN_GREATER_EQ || op == BIN_LESS_EQ;
+}
+
+static int is_assignment_op(const BinaryOp op) {
+    return op == BIN_ASSIGN;
+}
+
+static int is_numeric_type(const TypeKind t) {
+    return t == TYPE_INT || t == TYPE_LONG || t == TYPE_FLOAT || t == TYPE_DOUBLE;
+}
+
+
 Scope* scope_create(Scope* parent) {
     Scope* new_scope = malloc(sizeof(Scope));
     new_scope->parent = parent;
@@ -79,20 +96,50 @@ static void analyze_expression(ExprNode* expr, Scope* scope) {
             break;
         }
         case EXPR_BINOP:
-            // analyze both operands
             analyze_expression(expr->binop.left, scope);
             analyze_expression(expr->binop.right, scope);
 
             const TypeKind lhs = expr->binop.left->type;
             const TypeKind rhs = expr->binop.right->type;
+            const BinaryOp op = expr->binop.op;
 
-            if (lhs != rhs) {
-                fprintf(stderr, "Error: type mismatch in binary expression\n");
-                exit(1);
+            if (is_arithmetic_op(op)) {
+                if (!is_numeric_type(lhs) || !is_numeric_type(rhs)) {
+                    fprintf(stderr, "Error: arithmetic on non-numeric types\n");
+                    exit(1);
+                }
+
+                if (lhs != rhs) {
+                    fprintf(stderr, "Error: type mismatch in binary expression\n");
+                    exit(1);
+                }
+
+                expr->type = lhs;
+                break;
             }
 
-            expr->type = lhs;
-            break;
+            if (is_comparison_op(op)) {
+                if (lhs != rhs) {
+                    fprintf(stderr, "Error: type mismatch in binary expression\n");
+                    exit(1);
+                }
+
+                expr->type = TYPE_INT;
+                break;
+            }
+
+            if (is_assignment_op(op)) {
+                if (lhs != rhs) {
+                    fprintf(stderr, "Error: type mismatch in assignment\n");
+                    exit(1);
+                }
+
+                expr->type = lhs;
+                break;
+            }
+
+            fprintf(stderr, "Error: unknown binary operator\n");
+            exit(1);
         case EXPR_CALL: {
             // look up function
             Symbol *func_sym = scope_lookup_recursive(scope, expr->call.function_name);
