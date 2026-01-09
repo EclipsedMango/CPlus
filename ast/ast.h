@@ -1,6 +1,8 @@
 #ifndef C__AST_H
 #define C__AST_H
 
+#include "../lexer/lexer.h"
+
 // needs to match lexer
 typedef enum BinaryOp {
     // arithmetic
@@ -45,6 +47,7 @@ typedef struct ExprNode {
         EXPR_BINOP,
         EXPR_CALL
     } kind;
+    SourceLocation location;
     union {
         char *text;
         struct {
@@ -67,21 +70,19 @@ typedef struct StmtNode {
         STMT_EXPR,
         STMT_COMPOUND,
     } kind;
+    SourceLocation location;
     union {
         struct {
             ExprNode *expr;
         } return_stmt;
-
         struct {
             TypeKind type;
             char *name;
             ExprNode *initializer;  // NULL if no initializer
         } var_decl;
-
         struct {
             ExprNode *expr;
         } expr_stmt;
-
         struct {
             struct StmtNode **stmts;
             int count;
@@ -97,6 +98,7 @@ typedef struct ParamNode {
 typedef struct FunctionNode {
     char *name;
     TypeKind return_type;
+    SourceLocation location;
     ParamNode *params;
     int param_count;
     StmtNode *body;

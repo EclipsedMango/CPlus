@@ -14,13 +14,15 @@ int main(const int argc, char *argv[]) {
         return 1;
     }
 
-    FILE *f = fopen(argv[1], "r");
+    char *filename = argv[1];
+    FILE *f = fopen(filename, "r");
     if (!f) {
-        printf("%s does not exist\n", argv[1]);
+        printf("%s does not exist\n", filename);
         return 1;
     }
 
-    printf("compiling %s\n", argv[1]);
+    printf("compiling %s\n", filename);
+    lexer_init(filename);
     set_current_file(f);
 
     const ProgramNode *program = parse_program();

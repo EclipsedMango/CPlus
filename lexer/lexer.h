@@ -51,12 +51,20 @@ typedef enum {
     TOK_INVALID,
 } TokenType;
 
+typedef struct SourceLocation {
+    int line;
+    int column;
+    const char *filename;  // or just store this globally
+} SourceLocation;
+
 typedef struct Token {
     TokenType type;
     char *lexeme;  // for identifiers and string literals
+    SourceLocation location;
 } Token;
 
 Token next_token(FILE *f);
+void lexer_init(const char *filename);
 
 
 #endif //C__LEXER_H
