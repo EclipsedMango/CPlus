@@ -30,4 +30,6 @@ void scope_add_symbol(Scope* scope, Symbol* symbol);
 Symbol* scope_lookup(const Scope* scope, const char* name);       // current scope only
 Symbol* scope_lookup_recursive(const Scope* scope, const char* name);  // search up
 
+void analyze_program(const ProgramNode *program);
+
 #endif //C__SEMANTIC_H

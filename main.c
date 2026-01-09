@@ -2,6 +2,7 @@
 
 #include "parser/parser.h"
 #include "parser/token_utils.h"
+#include "semantic/semantic.h"
 
 int main(const int argc, char *argv[]) {
     if (argc < 2) {
@@ -22,27 +23,15 @@ int main(const int argc, char *argv[]) {
     }
 
     printf("compiling %s\n", filename);
+
     lexer_init(filename);
     set_current_file(f);
 
     const ProgramNode *program = parse_program();
-    printf("Functions parsed: %d\n", program->function_count);
+    printf("parsing complete\n");
 
-    for (int i = 0; i < program->function_count; i++) {
-        const FunctionNode *func = program->functions[i];
-        printf("\nFunction: %s\n", func->name);
-        printf("  Return type: %d\n", func->return_type);
-        printf("  Parameters: %d\n", func->param_count);
-
-        for (int j = 0; j < func->param_count; j++) {
-            printf("    Param %d: type=%d, name=%s\n", j, func->params[j].type, func->params[j].name);
-        }
-
-        printf("  Body: %s\n", func->body->kind == STMT_COMPOUND ? "compound statement" : "other");
-        if (func->body->kind == STMT_COMPOUND) {
-            printf("  Body statements: %d\n", func->body->compound.count);
-        }
-    }
+    analyze_program(program);
+    printf("semantic analysis complete\n");
 
     fclose(f);
     return 0;

@@ -92,6 +92,7 @@ typedef struct StmtNode {
 
 typedef struct ParamNode {
     TypeKind type;
+    SourceLocation location;
     char *name;
 } ParamNode;
 
