@@ -1,0 +1,10 @@
+#ifndef C__COMMON_H
+#define C__COMMON_H
+
+typedef struct SourceLocation {
+    int line;
+    int column;
+    const char *filename;
+} SourceLocation;
+
+#endif //C__COMMON_H

@@ -1,5 +1,6 @@
 #ifndef C__LEXER_H
 #define C__LEXER_H
+#include "../common.h"
 #include <stdio.h>
 
 typedef enum {
@@ -50,12 +51,6 @@ typedef enum {
     TOK_EOF,
     TOK_INVALID,
 } TokenType;
-
-typedef struct SourceLocation {
-    int line;
-    int column;
-    const char *filename;  // or just store this globally
-} SourceLocation;
 
 typedef struct Token {
     TokenType type;

@@ -1,7 +1,7 @@
 #ifndef C__AST_H
 #define C__AST_H
 
-#include "../lexer/lexer.h"
+#include "../common.h"
 
 // needs to match lexer
 typedef enum BinaryOp {
