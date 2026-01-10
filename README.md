@@ -12,11 +12,11 @@ The syntax of **C+** is the same as C, but it will contain features like a strin
 This is still **WIP** and will be for a while! right now you can only really create functions and variables with returning.
 
 -----
-### How to run create and run a C+ program
+### How to create and run a C+ program
 
 -----
 
-#### First create your C+ file!
+#### Firstly create your C+ file!
 
 Here's an example program:
 ````
