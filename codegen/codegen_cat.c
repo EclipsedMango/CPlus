@@ -3,14 +3,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-const char* prologue = "\n; prologue\n"
+const char* prologue = "    ; prologue\n"
                        "    push r4\n"
                        "    push r5\n"
                        "    push r6\n"
                        "    push r7\n"
-                       "    mov r7, sp\n";
+                       "    mov r7, sp\n\n";
 
-const char* epilogue = "\n; epilogue\n"
+const char* epilogue = "\n    ; epilogue\n"
                        ".end:\n"
                        "    mov sp, r7\n"
                        "    pop r7\n"
@@ -23,6 +23,7 @@ const char* arg_registers[3] = {"r1", "r2", "r3"};
 
 char** strings[256];
 int string_count = 0;
+int branch_num = 0;
 
 void expr_in_reg(ExprNode* expr, FILE* file, int reg);
 void codegen_call(const ExprNode* expr, FILE* file);
@@ -52,35 +53,81 @@ void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
                 expr_in_reg(expr->binop.right, file, 5);
                     
                 if (op < BIN_EQUAL) {  // maths
-                    char** op_instr = nullptr;
+                    char* op_instr = NULL;
                     switch (op) {
                         case BIN_ADD:
-                            *op_instr = "add";
+                            op_instr = "add";
                             break;
                         case BIN_SUB:
-                            *op_instr = "sub";
+                            op_instr = "sub";
                             break;
                         case BIN_MUL:
-                            *op_instr = "umul";
+                            op_instr = "umul";
                             break;
                         case BIN_DIV:
-                            *op_instr = "udiv";
+                            op_instr = "udiv";
+                            break;
+                        default:
+                            fprintf(stderr, "Error: Invalid OP, was one added without me knowing?");
+                            exit(1);
                             break;
                     }
-                    fprintf(file, "    %s r4, r5\n", *op_instr);  // perform the op
-                    fprintf(file, "    mov r%d, r4"
-                                  "    pop r5\n"
-                                  "    pop r4\n", reg);
+                    fprintf(file, "    %s r4, r5\n", op_instr);  // perform the op
+                    fprintf(file, "    mov r%d, r4\n", reg);
                 } else {  // compare
+                    fprintf(file, "    cmp r4, r5  ; compare our values for bin op\n");
                     
+                    char* jmp_instr = NULL;
+                    switch (op) {
+                        case BIN_EQUAL:
+                            jmp_instr = "je";
+                            break;
+                        case BIN_GREATER:
+                            jmp_instr = "ja";
+                            break;
+                        case BIN_LESS:
+                            jmp_instr = "jb";
+                            break;
+                        case BIN_GREATER_EQ:
+                            jmp_instr = "jae";
+                            break;
+                        case BIN_LESS_EQ:
+                            jmp_instr = "jbe";
+                            break;
+                        default:
+                            fprintf(stderr, "Error: Invalid OP, was one added without me knowing?");
+                            exit(1);
+                    }
+                    
+                    // now we have the jump instruction, later we'll make a label for 
+                    // the true and false branches, so jump occordingly.
+                    // They will be named .cmpbranch_INDEX_true and false
+                    fprintf(file, "    %s .cmpbranch_%d_true\n", jmp_instr, branch_num);
+                    fprintf(file, "    jmp .cmpbranch_%d_false\n", branch_num);
+                    
+                    // true branch (set to 1)
+                    fprintf(file, ".cmpbranch_%d_true:\n", branch_num);
+                    fprintf(file, "    mov r%d, 1\n", reg);  // true
+                    fprintf(file, "    jmp .cmpbranch_%d_end\n\n", branch_num);
+                    
+                    // false branch (set to 0)
+                    fprintf(file, ".cmpbranch_%d_false:\n", branch_num);
+                    fprintf(file, "    mov r%d, 0\n\n", reg);  // false
+                    
+                    // end
+                    fprintf(file, ".cmpbranch_%d_end:\n", branch_num);
+                    
+                    branch_num++;
                 }
+                
+                // restore registers
+                fprintf(file, "    pop r5\n"
+                              "    pop r4\n");
             } else {  // assign
                 // fuck no
                 fprintf(stderr, "Error: fuck no");
                 exit(69);
             }
-                
-            expr->call.args[i]->binop.left;
             break;
         }
         case EXPR_CALL:
@@ -155,6 +202,7 @@ void codegen_function(const FunctionNode* function, FILE* file) {
     fprintf(file, "%s:\n", function->name);
     fprintf(file, "%s", prologue);
 
+    fprintf(file, "    ; Save arguments on stack\n");
     for (int i = 0; i < function->param_count; i++) {
         if (i >= 3) {
             break;
@@ -162,6 +210,7 @@ void codegen_function(const FunctionNode* function, FILE* file) {
 
         fprintf(file, "    push %s\n", arg_registers[i]);
     }
+    fprintf(file, "\n");
 
     codegen_statement(function->body, file);
     fprintf(file, "%s", epilogue);
@@ -170,7 +219,7 @@ void codegen_function(const FunctionNode* function, FILE* file) {
 void codegen_program(const ProgramNode* program, const char* output_file) {
     FILE *output = fopen(output_file, "w");
 
-    if (output == nullptr) {
+    if (output == NULL) {
         fprintf(stderr, "Error writing object file: %s\n", output_file);
         exit(1);
     }
