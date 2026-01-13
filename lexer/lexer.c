@@ -111,9 +111,9 @@ static Token lex_identifier_or_keyword(FILE *f, const int first) {
 }
 
 static Token lex_number_literal(FILE *f, int c) {
-    char buf[64]; // for literal text
-    int i = 0;
+    Vector buf = create_vector(8, sizeof(char));
     bool hasDecimal = false;
+    char ch = (char)c;
 
     // read digits
     while (c != EOF && (isdigit(c) || c == '.')) {
@@ -126,29 +126,38 @@ static Token lex_number_literal(FILE *f, int c) {
             hasDecimal = true;
         }
 
-        buf[i++] = c;
+        vector_push(&buf, &ch);
         c = next_char(f);
+        ch = (char)c;
     }
 
-    buf[i] = '\0';
+    ch = '\0';
     ungetc(c, f);
 
-    return (Token){
+    const char *lexeme = buf.elements;
+    const SourceLocation loc = make_location();
+    const Token tok = {
         .type = hasDecimal ? TOK_DECI_NUMBER : TOK_NUMBER,
-        .lexeme = strdup(buf),
-        .location = make_location()
+        .lexeme = strdup(lexeme),
+        .location = loc
     };
+
+    vector_destroy(&buf);
+    return tok;
 }
 
 static Token lex_string_literal(FILE *f) {
-    char buf[256];
-    int i = 0;
+    Vector buf = create_vector(16, sizeof(char));
     int c;
 
     while ((c = next_char(f)) != EOF) {
+        char ch;
         if (c == '"') {
-            buf[i] = '\0';
-            return (Token){ .type = TOK_STRING_LITERAL, .lexeme = strdup(buf), .location = make_location() };
+            ch = '\0';
+            vector_push(&buf, &ch);
+            const Token tok = { TOK_STRING_LITERAL, strdup(buf.elements), make_location() };
+            vector_destroy(&buf);
+            return tok;
         }
 
         if (c == '\n') {
@@ -159,22 +168,19 @@ static Token lex_string_literal(FILE *f) {
         if (c == '\\') {
             c = next_char(f);
             switch (c) {
-                case 'n':  buf[i++] = '\n'; break;
-                case 't':  buf[i++] = '\t'; break;
-                case '"':  buf[i++] = '"';  break;
-                case '\\': buf[i++] = '\\'; break;
+                case 'n':  ch = '\n'; break;
+                case 't':  ch = '\t'; break;
+                case '"':  ch = '"';  break;
+                case '\\': ch = '\\'; break;
                 default:
                     fprintf(stderr, "unknown escape: \\%c\n", c);
                     exit(1);
             }
         } else {
-            buf[i++] = c;
+            ch = (char)c;
         }
 
-        if (i >= 255) {
-            fprintf(stderr, "string literal too long\n");
-            exit(1);
-        }
+        vector_push(&buf, &ch);
     }
 
     fprintf(stderr, "unterminated string literal\n");
