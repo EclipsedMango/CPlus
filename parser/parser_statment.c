@@ -69,19 +69,19 @@ StmtNode* parse_compound_stmt(void) {
     expect(TOK_LBRACE);
 
     // allocate statement list (grow dynamically or use fixed size)
-    StmtNode** stmts = malloc(sizeof(StmtNode*) * 16);
-    int count = 0;
+    Vector stmts = create_vector(8, sizeof(StmtNode*));
 
     while (current_token().type != TOK_RBRACE && current_token().type != TOK_EOF) {
-        stmts[count++] = parse_statement();
+        StmtNode *s = parse_statement();
+        vector_push(&stmts, &s);
     }
 
     expect(TOK_RBRACE);
 
     StmtNode* stmt = malloc(sizeof(StmtNode));
     stmt->kind = STMT_COMPOUND;
-    stmt->compound.stmts = stmts;
-    stmt->compound.count = count;
+    stmt->compound.stmts = stmts.elements;
+    stmt->compound.count = stmts.length;
 
     return stmt;
 }

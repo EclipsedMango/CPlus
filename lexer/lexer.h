@@ -13,6 +13,7 @@ typedef enum {
 
     TOK_STRING_KW,
     TOK_RETURN,
+    TOK_IF,
 
     // identifiers & literals
     TOK_IDENTIFIER,

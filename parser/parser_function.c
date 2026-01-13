@@ -29,8 +29,7 @@ static void parse_parameter_list(ParamNode **params_out, int *count_out) {
     }
 
     // allocate parameter array
-    ParamNode *params = malloc(sizeof(ParamNode) * 16);
-    int count = 0;
+    Vector params = create_vector(4, sizeof(ParamNode));
 
     // parse first parameter
     do {
@@ -41,9 +40,8 @@ static void parse_parameter_list(ParamNode **params_out, int *count_out) {
         const Token name_tok = current_token();
         expect(TOK_IDENTIFIER);
 
-        params[count].type = type;
-        params[count].name = strdup(name_tok.lexeme);
-        count++;
+        ParamNode p = { .type = type, .name = strdup(name_tok.lexeme) };
+        vector_push(&params, &p);
 
         // check for more parameters
         if (current_token().type == TOK_COMMA) {
@@ -55,8 +53,8 @@ static void parse_parameter_list(ParamNode **params_out, int *count_out) {
 
     expect(TOK_RPAREN);
 
-    *params_out = params;
-    *count_out = count;
+    *params_out = params.elements;
+    *count_out = params.length;
 }
 
 FunctionNode* parse_function(void) {

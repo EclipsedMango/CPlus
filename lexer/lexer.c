@@ -8,6 +8,36 @@ static int current_line = 1;
 static int current_column = 1;
 static const char *current_filename = nullptr;
 
+// keywords
+static char *KW_INT    = "int";
+static char *KW_LONG   = "long";
+static char *KW_FLOAT  = "float";
+static char *KW_DOUBLE = "double";
+static char *KW_STRING = "string";
+static char *KW_RETURN = "return";
+static char *KW_IF     = "if";
+
+// operators
+static char *OP_ASSIGN          = "=";
+static char *OP_EQUAL_EQUAL     = "==";
+static char *OP_GREATER         = ">";
+static char *OP_GREATER_EQUALS  = ">=";
+static char *OP_LESS            = "<";
+static char *OP_LESS_EQUALS     = "<=";
+static char *OP_PLUS            = "+";
+static char *OP_MINUS           = "-";
+static char *OP_MULTIPLY        = "*";
+static char *OP_DIVIDE          = "/";
+static char *OP_MODULO          = "%";
+
+// punctuation
+static char *P_LPAREN = "(";
+static char *P_RPAREN = ")";
+static char *P_LBRACE = "{";
+static char *P_RBRACE = "}";
+static char *P_COMMA  = ",";
+static char *P_SEMI   = ";";
+
 void lexer_init(const char *filename) {
     current_line = 1;
     current_column = 1;
@@ -48,31 +78,36 @@ static SourceLocation make_location(void) {
 }
 
 static Token lex_identifier_or_keyword(FILE *f, const int first) {
-    char buf[32];
-    int i = 0;
+    Vector buffer = create_vector(8, sizeof(char));
 
-    buf[i++] = first;
+    char ch = (char)first;
+    vector_push(&buffer, &ch);
 
     int c;
     while ((c = next_char(f)) != EOF && (isalnum(c) || c == '_')) {
-        if (i < 31) buf[i++] = c;
+        ch = (char)c;
+        vector_push(&buffer, &ch);
     }
 
-    buf[i] = '\0';
+    ch = '\0';
+    vector_push(&buffer, &ch);
+
     ungetc(c, f);
 
+    const char *lexeme = buffer.elements;
     const SourceLocation loc = make_location();
-    if (strcmp(buf, "int") == 0)    return (Token){ .type = TOK_INT, .lexeme = strdup("int"), .location = loc };
-    if (strcmp(buf, "long") == 0)   return (Token){ .type = TOK_LONG, .lexeme = strdup("long"), .location = loc };
-    if (strcmp(buf, "float") == 0)  return (Token){ .type = TOK_FLOAT, .lexeme = strdup("float"), .location = loc };
-    if (strcmp(buf, "double") == 0) return (Token){ .type = TOK_DOUBLE, .lexeme = strdup("double"), .location = loc };
-    if (strcmp(buf, "string") == 0) return (Token){ .type = TOK_STRING_KW, .lexeme = strdup("string"), .location = loc };
-    if (strcmp(buf, "return") == 0) return (Token){ .type = TOK_RETURN, .lexeme = strdup("return"), .location = loc };
 
-    return (Token){
-        .type = TOK_IDENTIFIER,
-        .lexeme = strdup(buf)
-    };
+    Token tok = (Token){ .type = TOK_IDENTIFIER, .lexeme = strdup(lexeme), .location = loc };
+    if (strcmp(lexeme, KW_INT) == 0)    tok = (Token){ .type = TOK_INT, .lexeme = KW_INT, .location = loc };
+    if (strcmp(lexeme, KW_LONG) == 0)   tok = (Token){ .type = TOK_LONG, .lexeme = KW_LONG, .location = loc };
+    if (strcmp(lexeme, KW_FLOAT) == 0)  tok = (Token){ .type = TOK_FLOAT, .lexeme = KW_FLOAT, .location = loc };
+    if (strcmp(lexeme, KW_DOUBLE) == 0) tok = (Token){ .type = TOK_DOUBLE, .lexeme = KW_DOUBLE, .location = loc };
+    if (strcmp(lexeme, KW_STRING) == 0) tok = (Token){ .type = TOK_STRING_KW, .lexeme = KW_STRING, .location = loc };
+    if (strcmp(lexeme, KW_RETURN) == 0) tok = (Token){ .type = TOK_RETURN, .lexeme = KW_RETURN, .location = loc };
+    if (strcmp(lexeme, KW_IF) == 0)     tok = (Token){ .type = TOK_IF, .lexeme = KW_IF, .location = loc };
+
+    vector_destroy(&buffer);
+    return tok;
 }
 
 static Token lex_number_literal(FILE *f, int c) {
@@ -154,39 +189,39 @@ static Token lex_operator_or_punct(FILE *f, const int c) {
         // operators with possible lookahead
         case '=':
             next = next_char(f);
-            if (next == '=') return (Token){TOK_EQUAL_EQUAL, .lexeme = strdup("=="), .location = loc };
+            if (next == '=') return (Token){TOK_EQUAL_EQUAL, OP_EQUAL_EQUAL, loc };
             ungetc(next, f);
-            return (Token){TOK_ASSIGN, .lexeme = strdup("="), .location = loc };
+            return (Token){TOK_ASSIGN, OP_ASSIGN, loc };
 
         case '>':
             next = next_char(f);
-            if (next == '=') return (Token){TOK_GREATER_EQUALS, .lexeme = strdup(">="), .location = loc };
+            if (next == '=') return (Token){TOK_GREATER_EQUALS, OP_GREATER_EQUALS, loc };
             ungetc(next, f);
-            return (Token){TOK_GREATER, .lexeme = strdup(">"), .location = loc };
+            return (Token){TOK_GREATER, OP_GREATER, loc };
 
         case '<':
             next = next_char(f);
-            if (next == '=') return (Token){TOK_LESS_EQUALS, .lexeme = strdup("<="), .location = loc };
+            if (next == '=') return (Token){TOK_LESS_EQUALS, OP_LESS_EQUALS, loc };
             ungetc(next, f);
-            return (Token){TOK_LESS, .lexeme = strdup("<"), .location = loc};
+            return (Token){TOK_LESS, OP_LESS, loc};
 
             // single-char operators
-        case '+': return (Token){.type = TOK_PLUS, .lexeme = strdup("+"), .location = loc};
-        case '-': return (Token){.type = TOK_SUBTRACT, .lexeme = strdup("-"), .location = loc};
-        case '*': return (Token){.type = TOK_MULTIPLY, .lexeme = strdup("*"), .location = loc};
-        case '/': return (Token){.type = TOK_DIVIDE, .lexeme = strdup("/"), .location = loc};
-        case '%': return (Token){.type = TOK_MODULO, .lexeme = strdup("%"), .location = loc};
+        case '+': return (Token){.type = TOK_PLUS, OP_PLUS, loc};
+        case '-': return (Token){.type = TOK_SUBTRACT, OP_MINUS, loc};
+        case '*': return (Token){.type = TOK_MULTIPLY, OP_MULTIPLY, loc};
+        case '/': return (Token){.type = TOK_DIVIDE, OP_DIVIDE, loc};
+        case '%': return (Token){.type = TOK_MODULO, OP_MODULO, loc};
 
             // punctuation / delimiters
-        case '(': return (Token){TOK_LPAREN, .lexeme = strdup("("), .location = loc};
-        case ')': return (Token){TOK_RPAREN, .lexeme = strdup(")"), .location = loc};
-        case '{': return (Token){TOK_LBRACE, .lexeme = strdup("{"), .location = loc};
-        case '}': return (Token){TOK_RBRACE, .lexeme = strdup("}"), .location = loc};
-        case ',': return (Token){TOK_COMMA, .lexeme = strdup(","), .location = loc};
-        case ';': return (Token){TOK_SEMI, .lexeme = strdup(";"), .location = loc};
+        case '(': return (Token){TOK_LPAREN, P_LPAREN, loc};
+        case ')': return (Token){TOK_RPAREN, P_RPAREN, loc};
+        case '{': return (Token){TOK_LBRACE, P_LBRACE, loc};
+        case '}': return (Token){TOK_RBRACE, P_RBRACE, loc};
+        case ',': return (Token){TOK_COMMA, P_COMMA, loc};
+        case ';': return (Token){TOK_SEMI, P_SEMI, loc};
 
         default:
-            return (Token){TOK_EOF, .location = loc}; // should never happen
+            return (Token){TOK_EOF,nullptr, loc}; // should never happen
     }
 }
 

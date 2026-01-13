@@ -103,12 +103,12 @@ static ExprNode *parse_factor(void) {
             advance();
 
             // parse arguments
-            ExprNode **args = malloc(sizeof(ExprNode*) * 16);
-            int arg_count = 0;
+            Vector args = create_vector(4, sizeof(ExprNode*));
 
             if (current_token().type != TOK_RPAREN) {
                 do {
-                    args[arg_count++] = parse_expression();
+                    ExprNode *arg = parse_expression();
+                    vector_push(&args, &arg);
 
                     if (current_token().type == TOK_COMMA) {
                         advance();
@@ -120,7 +120,7 @@ static ExprNode *parse_factor(void) {
 
             expect(TOK_RPAREN);
 
-            return make_call(name_tok.lexeme, args, arg_count);
+            return make_call(name_tok.lexeme, args.elements, args.length);
         }
 
         return make_var(name_tok.lexeme);
