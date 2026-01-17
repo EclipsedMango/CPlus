@@ -30,6 +30,7 @@ typedef enum TypeKind {
     TYPE_FLOAT,
     TYPE_DOUBLE,
     TYPE_STRING,
+    TYPE_BOOLEAN,
     TYPE_VOID
 } TypeKind;
 
@@ -67,6 +68,7 @@ typedef struct ExprNode {
 typedef struct StmtNode {
     enum {
         STMT_RETURN,
+        STMT_IF,
         STMT_VAR_DECL,
         STMT_EXPR,
         STMT_COMPOUND,
@@ -76,6 +78,11 @@ typedef struct StmtNode {
         struct {
             ExprNode *expr;
         } return_stmt;
+        struct {
+            ExprNode *condition;
+            struct StmtNode *then_stmt;
+            struct StmtNode *else_stmt;
+        } if_stmt;
         struct {
             TypeKind type;
             char *name;

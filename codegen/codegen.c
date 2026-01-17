@@ -53,7 +53,9 @@ static LLVMTypeRef get_llvm_type(const TypeKind type) {
         case TYPE_LONG:   return LLVMInt64TypeInContext(context);
         case TYPE_FLOAT:  return LLVMFloatTypeInContext(context);
         case TYPE_DOUBLE: return LLVMDoubleTypeInContext(context);
+        case TYPE_BOOLEAN: return LLVMInt1TypeInContext(context);
         case TYPE_VOID:   return LLVMVoidTypeInContext(context);
+        case TYPE_STRING: return LLVMPointerType(LLVMInt8TypeInContext(context), 0);
         default:
             fprintf(stderr, "Unsupported type in codegen\n");
             exit(1);
@@ -67,9 +69,18 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
     }
     switch (expr->kind) {
         case EXPR_NUMBER: {
-            // parse the number from text
+            if (expr->type == TYPE_BOOLEAN) {
+                const int value = atoi(expr->text);
+                return LLVMConstInt(LLVMInt1TypeInContext(context), value != 0, 0);
+            }
+
             const int value = atoi(expr->text);
             return LLVMConstInt(LLVMInt32TypeInContext(context), value, 0);
+        }
+        case EXPR_STRING_LITERAL: {
+            // create a global string constant
+            LLVMValueRef str_const = LLVMBuildGlobalStringPtr(builder, expr->text, "strtmp");
+            return str_const;
         }
         case EXPR_VAR: {
             const LLVMValueRef var = lookup_local_var(expr->text);
@@ -77,11 +88,11 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
                 fprintf(stderr, "Codegen error: undefined variable '%s'\n", expr->text);
                 exit(1);
             }
-            // load value
-            return LLVMBuildLoad2(builder, LLVMInt32TypeInContext(context), var, "loadtmp");
+            // Load with the correct type
+            LLVMTypeRef var_type = get_llvm_type(expr->type);
+            return LLVMBuildLoad2(builder, var_type, var, "loadtmp");
         }
         case EXPR_BINOP: {
-            printf("Codegen binary op: %d\n", expr->binop.op);
             if (!expr->binop.left) {
                 fprintf(stderr, "Error: binary op has null left operand\n");
                 exit(1);
@@ -103,6 +114,32 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
                     return LLVMBuildMul(builder, left, right, "multmp");
                 case BIN_DIV:
                     return LLVMBuildSDiv(builder, left, right, "divtmp");
+                case BIN_ASSIGN:
+                    if (expr->binop.left->kind != EXPR_VAR) {
+                        fprintf(stderr, "Left-hand side of assignment must be a variable\n");
+                        exit(1);
+                    }
+
+                    LLVMValueRef lhs_ptr = lookup_local_var(expr->binop.left->text);
+                    if (!lhs_ptr) {
+                        fprintf(stderr, "Assignment to undefined variable '%s'\n", expr->binop.left->text);
+                        exit(1);
+                    }
+
+                    LLVMValueRef rhs_val = codegen_expression(expr->binop.right);
+                    LLVMBuildStore(builder, rhs_val, lhs_ptr);
+
+                    return rhs_val;
+                case BIN_LESS:
+                    return LLVMBuildICmp(builder, LLVMIntSLT, left, right, "cmptmp");
+                case BIN_GREATER:
+                    return LLVMBuildICmp(builder, LLVMIntSGT, left, right, "cmptmp");
+                case BIN_LESS_EQ:
+                    return LLVMBuildICmp(builder, LLVMIntSLE, left, right, "cmptmp");
+                case BIN_GREATER_EQ:
+                    return LLVMBuildICmp(builder, LLVMIntSGE, left, right, "cmptmp");
+                case BIN_EQUAL:
+                    return LLVMBuildICmp(builder, LLVMIntEQ, left, right, "cmptmp");
                 default:
                     fprintf(stderr, "Unsupported binary operator\n");
                     exit(1);
@@ -143,6 +180,48 @@ static void codegen_statement(const StmtNode* stmt) {
 
             const LLVMValueRef ret_val = codegen_expression(stmt->return_stmt.expr);
             LLVMBuildRet(builder, ret_val);
+            break;
+        }
+        case STMT_IF: {
+            // evaluate condition
+            LLVMValueRef cond_val = codegen_expression(stmt->if_stmt.condition);
+
+            // LLVM expects i1 for condition
+            cond_val = LLVMBuildTrunc(builder, cond_val, LLVMInt1TypeInContext(context), "ifcond");
+
+            // create blocks
+            LLVMValueRef func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(builder));
+            LLVMBasicBlockRef then_block = LLVMAppendBasicBlockInContext(context, func, "then");
+            LLVMBasicBlockRef else_block = stmt->if_stmt.else_stmt ? LLVMAppendBasicBlockInContext(context, func, "else") : NULL;
+            LLVMBasicBlockRef merge_block = LLVMAppendBasicBlockInContext(context, func, "ifcont");
+
+            // conditional branch
+            if (else_block) {
+                LLVMBuildCondBr(builder, cond_val, then_block, else_block);
+            } else {
+                LLVMBuildCondBr(builder, cond_val, then_block, merge_block);
+            }
+
+            // generate 'then' block
+            LLVMPositionBuilderAtEnd(builder, then_block);
+            codegen_statement(stmt->if_stmt.then_stmt);
+            // Only add branch if block is not already terminated
+            if (!LLVMGetBasicBlockTerminator(then_block)) {
+                LLVMBuildBr(builder, merge_block);
+            }
+
+            // generate 'else' block if present
+            if (else_block) {
+                LLVMPositionBuilderAtEnd(builder, else_block);
+                codegen_statement(stmt->if_stmt.else_stmt);
+                // Only add branch if block is not already terminated
+                if (!LLVMGetBasicBlockTerminator(else_block)) {
+                    LLVMBuildBr(builder, merge_block);
+                }
+            }
+
+            // continue after if
+            LLVMPositionBuilderAtEnd(builder, merge_block);
             break;
         }
         case STMT_VAR_DECL: {
@@ -257,7 +336,7 @@ void codegen_program(const ProgramNode* program, const char* output_file) {
         "generic",
         "",
         LLVMCodeGenLevelDefault,
-        LLVMRelocDefault,
+        LLVMRelocPIC,  // Change this from LLVMRelocDefault to LLVMRelocPIC
         LLVMCodeModelDefault
     );
 

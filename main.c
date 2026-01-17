@@ -1,6 +1,6 @@
 #include <stdio.h>
 
-#include "codegen/codegen_cat.h"
+#include "codegen/codegen.h"
 #include "parser/parser.h"
 #include "parser/token_utils.h"
 #include "semantic/semantic.h"

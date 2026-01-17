@@ -12,8 +12,11 @@ typedef enum {
     TOK_DOUBLE,
 
     TOK_STRING_KW,
+    TOK_BOOL,
+
     TOK_RETURN,
     TOK_IF,
+    TOK_ELSE,
 
     // identifiers & literals
     TOK_IDENTIFIER,

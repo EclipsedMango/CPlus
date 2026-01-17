@@ -124,11 +124,16 @@ static void analyze_expression(ExprNode* expr, Scope* scope) {
                     exit(1);
                 }
 
-                expr->type = TYPE_INT;
+                expr->type = TYPE_BOOLEAN;
                 break;
             }
 
             if (is_assignment_op(op)) {
+                if (expr->binop.left->kind != EXPR_VAR) {
+                    fprintf(stderr, "Error: left-hand side of assignment is not assignable\n");
+                    exit(1);
+                }
+
                 if (lhs != rhs) {
                     fprintf(stderr, "Error: type mismatch in assignment\n");
                     exit(1);
@@ -170,11 +175,30 @@ static void analyze_expression(ExprNode* expr, Scope* scope) {
 
 static void analyze_statement(const StmtNode* stmt, Scope* scope) {
     switch (stmt->kind) {
-        case STMT_RETURN:
+        case STMT_RETURN: {
             if (stmt->return_stmt.expr) {
                 analyze_expression(stmt->return_stmt.expr, scope);
             }
             break;
+        }
+        case STMT_IF: {
+            analyze_expression(stmt->if_stmt.condition, scope);
+
+            if (stmt->if_stmt.condition->type != TYPE_BOOLEAN) {
+                fprintf(stderr, "Error: if condition must be integer (boolean)\n");
+                exit(1);
+            }
+
+            if (stmt->if_stmt.then_stmt) {
+                analyze_statement(stmt->if_stmt.then_stmt, scope);
+            }
+
+            if (stmt->if_stmt.else_stmt) {
+                analyze_statement(stmt->if_stmt.else_stmt, scope);
+            }
+
+            break;
+        }
         case STMT_VAR_DECL: {
             // check if variable already exists in current scope
             const Symbol *existing = scope_lookup(scope, stmt->var_decl.name);
@@ -198,6 +222,7 @@ static void analyze_statement(const StmtNode* stmt, Scope* scope) {
 
                 if (stmt->var_decl.initializer->type != stmt->var_decl.type) {
                     fprintf(stderr, "Error: type mismatch in assignment\n");
+                    exit(1);
                 }
             }
             break;

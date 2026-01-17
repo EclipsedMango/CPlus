@@ -10,6 +10,7 @@ static TypeKind token_to_typekind(const TokenType token) {
         case TOK_FLOAT: return TYPE_FLOAT;
         case TOK_DOUBLE: return TYPE_DOUBLE;
         case TOK_STRING_KW: return TYPE_STRING;
+        case TOK_BOOL: return TYPE_BOOLEAN;
         default:
             fprintf(stderr, "invalid type token: %d\n", token);
             exit(1);
@@ -21,9 +22,36 @@ StmtNode* parse_return_stmt(void) {
 
     StmtNode* stmt = malloc(sizeof(StmtNode));
     stmt->kind = STMT_RETURN;
-    stmt->return_stmt.expr = parse_expression();
+
+    // only parse expression if next token is NOT a semicolon
+    if (current_token().type != TOK_SEMI) {
+        stmt->return_stmt.expr = parse_expression();
+    } else {
+        stmt->return_stmt.expr = nullptr;
+    }
 
     expect(TOK_SEMI);
+    return stmt;
+}
+
+StmtNode* parse_if_stmt(void) {
+    expect(TOK_IF);
+
+    StmtNode* stmt = malloc(sizeof *stmt);
+    stmt->kind = STMT_IF;
+    stmt->if_stmt.else_stmt = nullptr;
+
+    expect(TOK_LPAREN);
+    stmt->if_stmt.condition = parse_expression();
+    expect(TOK_RPAREN);
+
+    stmt->if_stmt.then_stmt = parse_statement();
+
+    if (current_token().type == TOK_ELSE) {
+        expect(TOK_ELSE);
+        stmt->if_stmt.else_stmt = parse_statement();
+    }
+
     return stmt;
 }
 
@@ -94,8 +122,13 @@ StmtNode* parse_statement(void) {
         return parse_return_stmt();
     }
 
+    // if statement
+    if (t.type == TOK_IF) {
+        return parse_if_stmt();
+    }
+
     // variable declaration (starts with type)
-    if (t.type == TOK_INT || t.type == TOK_LONG || t.type == TOK_FLOAT || t.type == TOK_DOUBLE || t.type == TOK_STRING_KW) {
+    if (t.type == TOK_INT || t.type == TOK_LONG || t.type == TOK_FLOAT || t.type == TOK_DOUBLE || t.type == TOK_STRING_KW || t.type == TOK_BOOL) {
         return parse_var_decl();
     }
 

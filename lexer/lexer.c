@@ -14,6 +14,7 @@ static char *KW_LONG   = "long";
 static char *KW_FLOAT  = "float";
 static char *KW_DOUBLE = "double";
 static char *KW_STRING = "string";
+static char *KW_BOOL = "bool";
 static char *KW_RETURN = "return";
 static char *KW_IF     = "if";
 
@@ -103,6 +104,7 @@ static Token lex_identifier_or_keyword(FILE *f, const int first) {
     if (strcmp(lexeme, KW_FLOAT) == 0)  tok = (Token){ .type = TOK_FLOAT, .lexeme = KW_FLOAT, .location = loc };
     if (strcmp(lexeme, KW_DOUBLE) == 0) tok = (Token){ .type = TOK_DOUBLE, .lexeme = KW_DOUBLE, .location = loc };
     if (strcmp(lexeme, KW_STRING) == 0) tok = (Token){ .type = TOK_STRING_KW, .lexeme = KW_STRING, .location = loc };
+    if (strcmp(lexeme, KW_BOOL) == 0)   tok = (Token){ .type = TOK_BOOL, .lexeme = KW_BOOL, .location = loc };
     if (strcmp(lexeme, KW_RETURN) == 0) tok = (Token){ .type = TOK_RETURN, .lexeme = KW_RETURN, .location = loc };
     if (strcmp(lexeme, KW_IF) == 0)     tok = (Token){ .type = TOK_IF, .lexeme = KW_IF, .location = loc };
 
