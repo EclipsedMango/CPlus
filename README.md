@@ -36,17 +36,9 @@ Save this into a folder call **C+** (If you cloned this repo this will already b
 Now time to run some commands!
 
 - Cmd 1:
-  - This command compiles the compiler
-  - ````gcc main.c lexer/*.c parser/*.c semantic/*.c codegen/*.c -o compiler $(llvm-config --cflags) -lLLVM````
+  - This command compiles the compiler and compiles your **C+** program with the **C+** compiler
+  - ````gcc main.c common.c lexer/*.c parser/*.c semantic/*.c codegen/codegen.c -o compiler $(llvm-config --cflags) -lLLVM && ./compiler C+/main.cp````
 
 - Cmd 2:
-  - This command compiles your **C+** program with the **C+** compiler
-  - ````./compiler C+/main.cp````
-
-- Cmd 3:
-  - This generates the program binary for you to run
-  - ````gcc output.o -o program````
-
-- Cmd 4:
-  - Finally run your **C+** program!
-  - ````./program````
+  - This generates the program binary for you to run and runs your **C+** program!
+  - ````gcc output.o -o program && ./program````
