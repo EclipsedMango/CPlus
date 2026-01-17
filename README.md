@@ -23,7 +23,7 @@ This project is a **work in progress!** Currently supported features:
 #### What you will need:
 - GCC compiler
 - LLVM development libraries
-- llvm-config in your PATH
+- ````llvm-config in```` your PATH
 
 -----
 
