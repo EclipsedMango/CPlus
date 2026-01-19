@@ -57,23 +57,23 @@ Symbol* scope_lookup(const Scope* scope, const char* name) {
         }
     }
 
-    return nullptr;
+    return NULL;
 }
 
 Symbol* scope_lookup_recursive(const Scope* scope, const char* name) {
     // try current scope first
     Symbol* sym = scope_lookup(scope, name);
-    if (sym != nullptr) {
+    if (sym != NULL) {
         return sym;
     }
 
     // if not found and parent exists, search parent
-    if (scope->parent != nullptr) {
+    if (scope->parent != NULL) {
         return scope_lookup_recursive(scope->parent, name);
     }
 
     // not found anywhere
-    return nullptr;
+    return NULL;
 }
 
 static void analyze_expression(ExprNode* expr, Scope* scope) {
@@ -274,7 +274,7 @@ static void analyze_function(const FunctionNode *func, Scope *global) {
 }
 
 void analyze_program(const ProgramNode *program) {
-    Scope* global = scope_create(nullptr);
+    Scope* global = scope_create(NULL);
 
     for (int i = 0; i < program->function_count; ++i) {
         const FunctionNode* func = program->functions[i];

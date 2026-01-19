@@ -9,14 +9,14 @@ Vector create_vector(const int capacity, const int element_size) {
 
 void vector_destroy(Vector* vector) {
     free(vector->elements);
-    vector->elements = nullptr;
+    vector->elements = NULL;
     vector->capacity = 0;
     vector->length = 0;
 }
 
 void* vector_get(const Vector* vector, const int index) {
     if (index < 0 || index >= vector->length) {
-        return nullptr;
+        return NULL;
     }
 
     return (char*)vector->elements + index * vector->element_size;

@@ -22,7 +22,7 @@ static void parse_parameter_list(ParamNode **params_out, int *count_out) {
 
     // handle empty parameter list
     if (current_token().type == TOK_RPAREN) {
-        *params_out = nullptr;
+        *params_out = NULL;
         *count_out = 0;
         advance();
         return;

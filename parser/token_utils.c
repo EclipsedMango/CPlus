@@ -3,7 +3,7 @@
 #include <stdlib.h>
 
 static Token tokens[TOKEN_BUFFER_SIZE];
-static FILE *current_file = nullptr;
+static FILE *current_file = NULL;
 
 /*
  * fill the token buffer by shifting left and

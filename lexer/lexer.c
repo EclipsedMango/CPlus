@@ -6,7 +6,7 @@
 
 static int current_line = 1;
 static int current_column = 1;
-static const char *current_filename = nullptr;
+static const char *current_filename = NULL;
 
 // keywords
 static char *KW_INT    = "int";
@@ -114,7 +114,7 @@ static Token lex_identifier_or_keyword(FILE *f, const int first) {
 
 static Token lex_number_literal(FILE *f, int c) {
     Vector buf = create_vector(8, sizeof(char));
-    bool hasDecimal = false;
+    int hasDecimal = 0;
     char ch = (char)c;
 
     // read digits
@@ -125,7 +125,7 @@ static Token lex_number_literal(FILE *f, int c) {
                 exit(1);
             }
 
-            hasDecimal = true;
+            hasDecimal = 1;
         }
 
         vector_push(&buf, &ch);
@@ -229,14 +229,14 @@ static Token lex_operator_or_punct(FILE *f, const int c) {
         case ';': return (Token){TOK_SEMI, P_SEMI, loc};
 
         default:
-            return (Token){TOK_EOF,nullptr, loc}; // should never happen
+            return (Token){TOK_EOF,NULL, loc}; // should never happen
     }
 }
 
 Token next_token(FILE *f) {
     const int c = skip_whitespace(f);
 
-    if (c == EOF) return (Token){TOK_EOF, nullptr};
+    if (c == EOF) return (Token){TOK_EOF, NULL};
     if (c == '"') return lex_string_literal(f);
 
     if (isdigit(c)) return lex_number_literal(f, c);
