@@ -152,6 +152,7 @@ static Token lex_number_literal(FILE *f, int c) {
     }
 
     ch = '\0';
+    vector_push(&buf, &ch);
     ungetc(c, f);
 
     const char *lexeme = buf.elements;
