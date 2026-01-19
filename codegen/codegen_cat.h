@@ -3,6 +3,6 @@
 
 #include "../ast/ast.h"
 
-void codegen_program(const ProgramNode* program, const char* output_file);
+void codegen_program_cat(const ProgramNode* program, const char* output_file);
 
 #endif //C__CODEGEN_CAT_H

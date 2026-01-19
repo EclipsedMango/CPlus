@@ -309,7 +309,7 @@ static void codegen_function(const FunctionNode* func) {
     free(param_types);
 }
 
-void codegen_program(const ProgramNode* program, const char* output_file) {
+void codegen_program_llvm(const ProgramNode* program, const char* output_file) {
     // init
     LLVMInitializeNativeTarget();
     LLVMInitializeNativeAsmPrinter();

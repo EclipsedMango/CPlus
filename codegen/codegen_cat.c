@@ -216,7 +216,7 @@ void codegen_function(const FunctionNode* function, FILE* file) {
     fprintf(file, "%s", epilogue);
 }
 
-void codegen_program(const ProgramNode* program, const char* output_file) {
+void codegen_program_cat(const ProgramNode* program, const char* output_file) {
     FILE *output = fopen(output_file, "w");
 
     if (output == NULL) {
