@@ -27,7 +27,7 @@ StmtNode* parse_return_stmt(void) {
     if (current_token().type != TOK_SEMI) {
         stmt->return_stmt.expr = parse_expression();
     } else {
-        stmt->return_stmt.expr = nullptr;
+        stmt->return_stmt.expr = NULL;
     }
 
     expect(TOK_SEMI);
@@ -39,7 +39,7 @@ StmtNode* parse_if_stmt(void) {
 
     StmtNode* stmt = malloc(sizeof *stmt);
     stmt->kind = STMT_IF;
-    stmt->if_stmt.else_stmt = nullptr;
+    stmt->if_stmt.else_stmt = NULL;
 
     expect(TOK_LPAREN);
     stmt->if_stmt.condition = parse_expression();
@@ -66,7 +66,7 @@ StmtNode* parse_var_decl(void) {
     expect(TOK_IDENTIFIER);
 
     // check for initializer
-    ExprNode *initializer = nullptr;
+    ExprNode *initializer = NULL;
     if (current_token().type == TOK_ASSIGN) {
         advance();
         initializer = parse_expression();
