@@ -54,10 +54,7 @@ void advance(void) {
 // expect a token type or error
 void expect(const TokenType type) {
     if (current_token().type != type) {
-        fprintf(stderr, "parser error: expected token %d, got %d (lexeme: %s)\n",
-                type, current_token().type,
-                current_token().lexeme ? current_token().lexeme : "(null)");
-        exit(1);
+        report_error(current_token().location, "Expected '%s', but got '%s'", token_type_to_string(type), token_type_to_string(current_token().type));
     }
     advance();
 }

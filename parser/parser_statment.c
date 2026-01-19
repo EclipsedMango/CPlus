@@ -66,8 +66,7 @@ StmtNode* parse_asm_stmt(void) {
 
     // expect a string literal containing assembly code
     if (current_token().type != TOK_STRING_LITERAL) {
-        fprintf(stderr, "Error: expected assembly string after 'asm('\n");
-        exit(1);
+        report_error(current_token().location, "Expected assembly string literal after 'asm('");
     }
 
     char *asm_code = strdup(current_token().lexeme);

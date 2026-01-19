@@ -1,6 +1,8 @@
 #include "common.h"
 
+#include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #include <string.h>
 
 Vector create_vector(const int capacity, const int element_size) {
@@ -55,5 +57,15 @@ void vector_pop(Vector* vector) {
     }
 }
 
+void report_error(const SourceLocation loc, const char *fmt, ...) {
+    fprintf(stderr, "%s:%d:%d: Error: ", loc.filename ? loc.filename : "<unknown>", loc.line, loc.column);
 
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(stderr, fmt, args);
+    va_end(args);
+
+    fprintf(stderr, "\n");
+    exit(1);
+}
 

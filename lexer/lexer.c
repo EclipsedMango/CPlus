@@ -32,6 +32,10 @@ static char *OP_MINUS           = "-";
 static char *OP_MULTIPLY        = "*";
 static char *OP_DIVIDE          = "/";
 static char *OP_MODULO          = "%";
+static char *OP_AND             = "&&";
+static char *OP_OR              = "||";
+static char *OP_NOT             = "!";
+static char *OP_NOT_EQUAL       = "!=";
 
 // punctuation
 static char *P_LPAREN = "(";
@@ -40,6 +44,16 @@ static char *P_LBRACE = "{";
 static char *P_RBRACE = "}";
 static char *P_COMMA  = ",";
 static char *P_SEMI   = ";";
+
+// identifiers & literals
+static char *IDENTIFIER = "identifier";
+static char *STRING_LITERAL = "string literal";
+static char *NUMBER = "number";
+static char *DECI_NUMBER = "decimal number";
+
+// special
+static char *END_OF_FILE = "end of file";
+static char *UNKNOWN = "unknown token";
 
 void lexer_init(const char *filename) {
     current_line = 1;
@@ -167,8 +181,7 @@ static Token lex_string_literal(FILE *f) {
         }
 
         if (c == '\n') {
-            fprintf(stderr, "unterminated string literal\n");
-            exit(1);
+            report_error(make_location(), "Unterminated string literal (newlines not allowed)");
         }
 
         if (c == '\\') {
@@ -189,7 +202,7 @@ static Token lex_string_literal(FILE *f) {
         vector_push(&buf, &ch);
     }
 
-    fprintf(stderr, "unterminated string literal\n");
+    report_error(make_location(), "Unterminated string literal at EOF");
     exit(1);
 }
 
@@ -221,14 +234,14 @@ static Token lex_operator_or_punct(FILE *f, const int c) {
             next = next_char(f);
             if (next == '&') return (Token){TOK_AND, "&&", loc };
             ungetc(next, f);
-            fprintf(stderr, "unexpected character: &\n");
+            report_error(loc, "Unexpected character '&'. Did you mean '&&'?");
             exit(1);
         }
         case '|': {
             next = next_char(f);
             if (next == '|') return (Token){TOK_OR, "||", loc };
             ungetc(next, f);
-            fprintf(stderr, "unexpected character: |\n");
+            report_error(loc, "Unexpected character '|'. Did you mean '||'?");
             exit(1);
         }
         case '!': {
@@ -253,8 +266,7 @@ static Token lex_operator_or_punct(FILE *f, const int c) {
         case ',': return (Token){TOK_COMMA, P_COMMA, loc};
         case ';': return (Token){TOK_SEMI, P_SEMI, loc};
 
-        default:
-            return (Token){TOK_EOF,NULL, loc}; // should never happen
+        default: return (Token){TOK_EOF,NULL, loc}; // should never happen
     }
 }
 
@@ -270,6 +282,48 @@ Token next_token(FILE *f) {
     const Token t = lex_operator_or_punct(f, c);
     if (t.type != TOK_EOF) return t;
 
-    fprintf(stderr, "unexpected char: %c\n", c);
+    report_error(make_location(), "Unexpected character: '%c'", c);
     exit(1);
+}
+
+const char* token_type_to_string(TokenType type) {
+    switch (type) {
+        case TOK_INT: return KW_INT;
+        case TOK_LONG: return KW_LONG;
+        case TOK_FLOAT: return KW_FLOAT;
+        case TOK_DOUBLE: return KW_DOUBLE;
+        case TOK_STRING_KW: return KW_STRING;
+        case TOK_BOOL: return KW_BOOL;
+        case TOK_RETURN: return KW_RETURN;
+        case TOK_IF: return KW_IF;
+        case TOK_ELSE: return KW_ELSE;
+        case TOK_ASM: return KW_ASM;
+        case TOK_IDENTIFIER: return IDENTIFIER;
+        case TOK_STRING_LITERAL: return STRING_LITERAL;
+        case TOK_NUMBER: return NUMBER;
+        case TOK_DECI_NUMBER: return DECI_NUMBER;
+        case TOK_PLUS: return OP_PLUS;
+        case TOK_SUBTRACT: return OP_MINUS;
+        case TOK_MULTIPLY: return OP_MULTIPLY;
+        case TOK_DIVIDE: return OP_DIVIDE;
+        case TOK_MODULO: return OP_MODULO;
+        case TOK_ASSIGN: return OP_ASSIGN;
+        case TOK_EQUAL_EQUAL: return OP_EQUAL_EQUAL;
+        case TOK_GREATER: return OP_GREATER;
+        case TOK_LESS: return OP_LESS;
+        case TOK_GREATER_EQUALS: return OP_GREATER_EQUALS;
+        case TOK_LESS_EQUALS: return OP_LESS_EQUALS;
+        case TOK_AND: return OP_AND;
+        case TOK_OR: return OP_OR;
+        case TOK_NOT: return OP_NOT;
+        case TOK_NOT_EQUAL: return OP_NOT_EQUAL;
+        case TOK_LPAREN: return P_LPAREN;
+        case TOK_RPAREN: return P_RPAREN;
+        case TOK_LBRACE: return P_LBRACE;
+        case TOK_RBRACE: return P_RBRACE;
+        case TOK_SEMI: return P_SEMI;
+        case TOK_COMMA: return P_COMMA;
+        case TOK_EOF: return END_OF_FILE;
+        default: return UNKNOWN;
+    }
 }

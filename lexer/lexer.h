@@ -71,6 +71,7 @@ typedef struct Token {
 
 Token next_token(FILE *f);
 void lexer_init(const char *filename);
+const char* token_type_to_string(TokenType type);
 
 
 #endif //C__LEXER_H

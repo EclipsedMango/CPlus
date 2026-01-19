@@ -5,6 +5,19 @@
 #include <stdlib.h>
 #include <string.h>
 
+static const char* type_to_str(const TypeKind t) {
+    switch(t) {
+        case TYPE_INT: return "int";
+        case TYPE_LONG: return "long";
+        case TYPE_FLOAT: return "float";
+        case TYPE_DOUBLE: return "double";
+        case TYPE_STRING: return "string";
+        case TYPE_BOOLEAN: return "bool";
+        case TYPE_VOID: return "void";
+        default: return "unknown";
+    }
+}
+
 static int is_arithmetic_op(const BinaryOp op) {
     return op == BIN_ADD || op == BIN_SUB || op == BIN_MUL || op == BIN_DIV || op == BIN_MOD;
 }
@@ -90,11 +103,9 @@ static void analyze_expression(ExprNode* expr, Scope* scope) {
             break;
         }
         case EXPR_VAR: {
-            // look up variable
             Symbol *sym = scope_lookup_recursive(scope, expr->text);
             if (!sym) {
-                fprintf(stderr, "Error: undefined variable '%s'\n", expr->text);
-                exit(1);
+                report_error(expr->location, "Undefined variable '%s'", expr->text);
             }
 
             expr->type = sym->type;
@@ -105,8 +116,7 @@ static void analyze_expression(ExprNode* expr, Scope* scope) {
 
             if (expr->unary.op == UNARY_NOT) {
                 if (expr->unary.operand->type == TYPE_VOID || expr->unary.operand->type == TYPE_STRING) {
-                    fprintf(stderr, "Error: Invalid type for '!' operator\n");
-                    exit(1);
+                    report_error(expr->location, "Invalid type '%s' for '!' operator. Expected boolean or number.", type_to_str(expr->unary.operand->type));
                 }
 
                 expr->type = TYPE_BOOLEAN;
@@ -114,8 +124,7 @@ static void analyze_expression(ExprNode* expr, Scope* scope) {
 
             else if (expr->unary.op == UNARY_NEG) {
                 if (!is_numeric_type(expr->unary.operand->type)) {
-                    fprintf(stderr, "Error: Invalid type for unary '-' operator\n");
-                    exit(1);
+                    report_error(expr->location, "Invalid type '%s' for unary '-' operator. Expected numeric type.", type_to_str(expr->unary.operand->type));
                 }
 
                 expr->type = expr->unary.operand->type;
@@ -129,77 +138,63 @@ static void analyze_expression(ExprNode* expr, Scope* scope) {
 
             const TypeKind lhs = expr->binop.left->type;
             const TypeKind rhs = expr->binop.right->type;
-            const BinaryOp op = expr->binop.op;
 
-            if (is_arithmetic_op(op)) {
+            if (is_arithmetic_op(expr->binop.op)) {
                 if (!is_numeric_type(lhs) || !is_numeric_type(rhs)) {
-                    fprintf(stderr, "Error: arithmetic on non-numeric types\n");
-                    exit(1);
+                    report_error(expr->location, "Arithmetic operator requires numeric types. Got '%s' and '%s'.", type_to_str(lhs), type_to_str(rhs));
                 }
 
                 if (lhs != rhs) {
-                    fprintf(stderr, "Error: type mismatch in binary expression\n");
-                    exit(1);
+                    report_error(expr->location, "Type mismatch in arithmetic expression: '%s' vs '%s'", type_to_str(lhs), type_to_str(rhs));
                 }
 
                 expr->type = lhs;
                 break;
             }
 
-            if (is_comparison_op(op)) {
+            if (is_comparison_op(expr->binop.op)) {
                 if (lhs != rhs) {
-                    fprintf(stderr, "Error: type mismatch in binary expression\n");
-                    exit(1);
+                    report_error(expr->location, "Type mismatch in comparison: '%s' vs '%s'", type_to_str(lhs), type_to_str(rhs));
                 }
 
                 expr->type = TYPE_BOOLEAN;
                 break;
             }
 
-            if (is_assignment_op(op)) {
+            if (is_assignment_op(expr->binop.op)) {
                 if (expr->binop.left->kind != EXPR_VAR) {
-                    fprintf(stderr, "Error: left-hand side of assignment is not assignable\n");
-                    exit(1);
-                }
-
-                if (expr->binop.left->kind != EXPR_VAR) {
-                    fprintf(stderr, "Error: left-hand side of assignment is not assignable\n");
-                    exit(1);
+                    report_error(expr->location, "Left-hand side of assignment must be a variable.");
                 }
 
                 if (lhs != rhs) {
-                    fprintf(stderr, "Error: type mismatch in assignment\n");
-                    exit(1);
+                    report_error(expr->location, "Type mismatch in assignment. Cannot assign '%s' to variable of type '%s'.", type_to_str(rhs), type_to_str(lhs));
                 }
 
                 expr->type = lhs;
                 break;
             }
 
-            if (is_logical_op(op)) {
+            if (is_logical_op(expr->binop.op)) {
+                // maybe allow numeric types as well?
                 if (lhs != TYPE_BOOLEAN || rhs != TYPE_BOOLEAN) {
-                    fprintf(stderr, "Error: logical operators require boolean operands\n");
-                    exit(1);
+                    report_error(expr->location, "Logical operators require boolean operands. Got '%s' and '%s'.", type_to_str(lhs), type_to_str(rhs));
                 }
 
                 expr->type = TYPE_BOOLEAN;
                 break;
             }
 
-            fprintf(stderr, "Error: unknown binary operator\n");
-            exit(1);
+            break;
         }
         case EXPR_CALL: {
             // look up function
             Symbol *func_sym = scope_lookup_recursive(scope, expr->call.function_name);
             if (!func_sym) {
-                fprintf(stderr, "Error: undefined function '%s'\n", expr->call.function_name);
-                exit(1);
+                report_error(expr->location, "Undefined function '%s'", expr->call.function_name);
             }
 
             if (func_sym->kind != SYM_FUNCTION) {
-                fprintf(stderr, "Error: '%s' is not a function\n", expr->call.function_name);
-                exit(1);
+                report_error(expr->location, "'%s' is not a function", expr->call.function_name);
             }
 
             // arguments
@@ -229,8 +224,7 @@ static void analyze_statement(const StmtNode* stmt, Scope* scope) {
             analyze_expression(stmt->if_stmt.condition, scope);
 
             if (stmt->if_stmt.condition->type != TYPE_BOOLEAN) {
-                fprintf(stderr, "Error: if condition must be integer (boolean)\n");
-                exit(1);
+                report_error(stmt->location, "If condition must be boolean. Got '%s'.", type_to_str(stmt->if_stmt.condition->type));
             }
 
             if (stmt->if_stmt.then_stmt) {
@@ -250,8 +244,7 @@ static void analyze_statement(const StmtNode* stmt, Scope* scope) {
             // check if variable already exists in current scope
             const Symbol *existing = scope_lookup(scope, stmt->var_decl.name);
             if (existing) {
-                fprintf(stderr, "Error: variable '%s' already declared in this scope\n", stmt->var_decl.name);
-                exit(1);
+                report_error(stmt->location, "Variable '%s' already declared in this scope (previous declaration at line %d)", stmt->var_decl.name, existing->location.line);
             }
 
             // add variable to scope
@@ -268,16 +261,20 @@ static void analyze_statement(const StmtNode* stmt, Scope* scope) {
                 analyze_expression(stmt->var_decl.initializer, scope);
 
                 if (stmt->var_decl.initializer->type != stmt->var_decl.type) {
-                    fprintf(stderr, "Error: type mismatch in assignment\n");
-                    exit(1);
+                    report_error(stmt->location, "Type mismatch in initialization of '%s'. Expected '%s', got '%s'.",
+                        stmt->var_decl.name,
+                        type_to_str(stmt->var_decl.type),
+                        type_to_str(stmt->var_decl.initializer->type)
+                    );
                 }
             }
             break;
         }
-        case STMT_EXPR:
+        case STMT_EXPR: {
             // analyze the expression
             analyze_expression(stmt->expr_stmt.expr, scope);
             break;
+        }
         case STMT_COMPOUND: {
             // create new scope for block
             Scope *block_scope = scope_create(scope);
@@ -290,9 +287,10 @@ static void analyze_statement(const StmtNode* stmt, Scope* scope) {
             scope_destroy(block_scope);
             break;
         }
-        default:
+        default: {
             fprintf(stderr, "Unknown statement kind: %d\n", stmt->kind);
             exit(1);
+        }
     }
 }
 

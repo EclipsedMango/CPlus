@@ -23,5 +23,8 @@ void vector_set(const Vector* vector, int index, const void* element);
 void vector_push(Vector* vector, const void* element);
 void vector_pop(Vector* vector);
 
+// ... is representation of variadic arguments, meaning accepts arbitrary number of params after defined ones
+// exits the program after reporting the error
+void report_error(SourceLocation loc, const char *fmt, ...);
 
 #endif //C__COMMON_H

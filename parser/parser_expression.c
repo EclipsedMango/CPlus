@@ -42,7 +42,7 @@ static ExprNode *parse_assignment(void) {
     if (current_token().type == TOK_ASSIGN) {
         const TokenType op = current_token().type;
         advance();
-        ExprNode *right = parse_assignment(); // right-associative recursion
+        ExprNode *right = parse_assignment(); // recursive on right side
         left = make_binop(op, left, right);
     }
 
@@ -171,12 +171,12 @@ static ExprNode *parse_factor(void) {
 
     if (t.type == TOK_LPAREN) {
         advance();
-        ExprNode *expr = parse_additive();
+        ExprNode *expr = parse_expression();
         expect(TOK_RPAREN);
         return expr;
     }
 
-    fprintf(stderr, "unexpected token in expression: %d\n", t.type);
+    report_error(t.location, "Unexpected token in expression: '%s'", token_type_to_string(t.type));
     exit(1);
 }
 
@@ -210,9 +210,7 @@ static BinaryOp token_to_binop(const TokenType token) {
         case TOK_AND: return BIN_LOGICAL_AND;
         case TOK_OR: return BIN_LOGICAL_OR;
         case TOK_NOT_EQUAL: return BIN_NOT_EQUAL;
-        default:
-            fprintf(stderr, "invalid binary operator token: %d\n", token);
-            exit(1);
+        default: report_error(current_token().location, "Parser logic error: Invalid binary operator token");
     }
 }
 
