@@ -26,6 +26,9 @@ char** strings[256];
 int string_count = 0;
 int branch_num = 0;
 
+Map* variables;  // key is name, value is offset from r7
+int current_r7_offset = 0;
+
 void expr_in_reg(ExprNode* expr, FILE* file, int reg);
 void codegen_call(const ExprNode* expr, FILE* file);
 
@@ -42,18 +45,25 @@ void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
             break;
         }
         case EXPR_VAR:
-            // todo
+            const int offset = map_get(variables, expr->text);
+            if (offset == -1) {
+                fprintf(stderr, "Error: Variable not found");
+                exit(1);
+            }
+            fprintf(file, "    mov r%d, r7\n", reg);  // our var is at r7+ the offset to it
+            fprintf(file, "    add r%d, %d\n", reg, offset);  // add the offset
+            fprintf(file, "    mov r%d, @r%d\n", reg, reg);  // dereference to get value
             break;
         case EXPR_BINOP: {
             const BinaryOp op = expr->binop.op;
-            if (op < BIN_ASSIGN) {  // compare or maths
+            if (op < BIN_ASSIGN || op > BIN_ASSIGN) {  // compare or maths
                 // let's just use r4 and r5 (we need to preserve them in case of nested ops)
                 fprintf(file, "    push r4\n"
                               "    push r5\n");
                 expr_in_reg(expr->binop.left, file, 4);
                 expr_in_reg(expr->binop.right, file, 5);
                     
-                if (op < BIN_EQUAL) {  // maths
+                if (op < BIN_EQUAL || op > BIN_ASSIGN) {  // maths
                     char* op_instr = NULL;
                     switch (op) {
                         case BIN_ADD:
@@ -68,10 +78,15 @@ void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
                         case BIN_DIV:
                             op_instr = "udiv";
                             break;
+                        case BIN_LOGICAL_AND:
+                            op_instr = "and";
+                            break;
+                        case BIN_LOGICAL_OR:
+                            op_instr = "or";
+                            break;
                         default:
                             fprintf(stderr, "Error: Invalid OP, was one added without me knowing?");
                             exit(1);
-                            break;
                     }
                     fprintf(file, "    %s r4, r5\n", op_instr);  // perform the op
                     fprintf(file, "    mov r%d, r4\n", reg);
@@ -82,6 +97,9 @@ void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
                     switch (op) {
                         case BIN_EQUAL:
                             jmp_instr = "je";
+                            break;
+                        case BIN_NOT_EQUAL:
+                            jmp_instr = "jne";
                             break;
                         case BIN_GREATER:
                             jmp_instr = "ja";
@@ -124,10 +142,35 @@ void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
                 // restore registers
                 fprintf(file, "    pop r5\n"
                               "    pop r4\n");
-            } else {  // assign
-                // fuck no
-                fprintf(stderr, "Error: fuck no");
-                exit(69);
+            } else {  // assignment
+                if (expr->binop.left->kind != EXPR_VAR) {
+                    fprintf(stderr, "Error: What? Assignment left of var assign isn't variable. It's: %d. Var is %s. Source line is %d.\n", expr->binop.left->kind, expr->binop.left->text, op);
+                    exit(1);
+                }
+                
+                const int offset = map_get(variables, expr->binop.left->text);
+                if (offset == -1) {
+                    fprintf(stderr, "Error: Variable not found");
+                    exit(1);
+                }
+                
+                expr_in_reg(expr->binop.right, file, reg);  // place value into register
+                
+                // get value we're setting to (in r6)
+                fprintf(file, "    ; setting variable %s\n", expr->binop.left->text);
+                fprintf(file, "    push r6\n");  // preserve it
+                fprintf(file, "    mov r6, r%d\n", reg);  // place target value into r6 to save
+                
+                fprintf(file, "    mov r%d, r7\n", reg);  // our var is at r7+ the offset to it
+                fprintf(file, "    add r%d, %d\n", reg, offset);  // add the offset
+                fprintf(file, "    mov @r%d, r6\n", reg);  // place r6 val into variable
+                
+                fprintf(file, "    pop r6\n\n");  // put r6 back
+                
+                // we can then pop r6 because nothing is being evaluated
+                // after pushing r6, which means the stack is safe
+                // that's why we start by getting the value in our allocated
+                // register 'reg'.
             }
             break;
         }
@@ -147,6 +190,7 @@ void codegen_call(const ExprNode* expr, FILE* file) {
                   "    push r1\n"
                   "    push r2\n"
                   "    push r3\n", expr->call.function_name);
+    current_r7_offset += 4*3;   // space for 3 args
     
     for (int i = 0; i < expr->call.arg_count; ++i) {
         if (i >= 3) {
@@ -161,9 +205,11 @@ void codegen_call(const ExprNode* expr, FILE* file) {
     // return value will be left in r0
     
     // restore existing arg registers
+    // we can't restore the stack space because we could overwrite variables (yes it's dumb)
     fprintf(file, "    pop r3\n"
                   "    pop r2\n"
-                  "    pop r1\n");
+                  "    pop r1\n"
+                  "    sub sp, 12\n");
 }
 
 void codegen_statement(const StmtNode* stmt, FILE* file) {
@@ -179,16 +225,24 @@ void codegen_statement(const StmtNode* stmt, FILE* file) {
             break;
         }
         case STMT_VAR_DECL: {
+            fprintf(file, "    sub sp, 4\n");  // allocate space
+            map_add(variables, stmt->var_decl.name, current_r7_offset);
+            current_r7_offset += 4;
             break;
         }
         case STMT_EXPR: {
-            if (stmt->expr_stmt.expr->kind != EXPR_CALL) {
-                fprintf(stderr, "Error: statement expression is not call statement\n");
-                exit(1);
+            if (stmt->expr_stmt.expr->kind == EXPR_CALL) {
+                codegen_call(stmt->expr_stmt.expr, file);  // places result in r0 but will be ignored
+                break;
             }
 
-            codegen_call(stmt->expr_stmt.expr, file);  // places result in r0 but will be ignored
-            break;
+            if (stmt->expr_stmt.expr->kind == EXPR_BINOP && stmt->expr_stmt.expr->binop.op == BIN_ASSIGN) {
+                expr_in_reg(stmt->expr_stmt.expr, file, 1);  // this will set, and clobber r1
+                break;
+            }
+                
+            fprintf(stderr, "Error: statement expression is not valid for statement. It's: %d.\n", stmt->expr_stmt.expr->kind);
+            exit(1);
         }
         case STMT_COMPOUND: {
             for (int i = 0; i < stmt->compound.count; ++i) {
@@ -221,6 +275,9 @@ void codegen_statement(const StmtNode* stmt, FILE* file) {
 }
 
 void codegen_function(const FunctionNode* function, FILE* file) {
+    int oldr7off = current_r7_offset;
+    current_r7_offset = 0;
+    
     fprintf(file, "%s:\n", function->name);
     fprintf(file, "%s", prologue);
 
@@ -231,11 +288,18 @@ void codegen_function(const FunctionNode* function, FILE* file) {
         }
 
         fprintf(file, "    push %s\n", arg_registers[i]);
+        
+        // record param
+        ParamNode param = function->params[i];
+        map_add(variables, param.name, current_r7_offset);
+        current_r7_offset += 4;
     }
     fprintf(file, "\n");
 
     codegen_statement(function->body, file);
     fprintf(file, "%s", epilogue);
+    
+    current_r7_offset = oldr7off;
 }
 
 void codegen_program_cat(const ProgramNode* program, const char* output_file) {
@@ -248,6 +312,11 @@ void codegen_program_cat(const ProgramNode* program, const char* output_file) {
 
     fprintf(output, "; GENERATED FROM C+ BY C+ COMPILER\n");
     fprintf(output, "jmp main\n");
+    
+    // initialise variables
+    Map varMap = create_map(16);
+    // ReSharper disable once CppDFALocalValueEscapesFunction, won't happen :D
+    variables = &varMap;
 
     for (int i = 0; i < program->function_count; i++) {
         fprintf(output, "\n");

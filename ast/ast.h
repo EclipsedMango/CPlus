@@ -18,6 +18,7 @@ typedef enum BinaryOp {
     BIN_LESS,
     BIN_GREATER_EQ,
     BIN_LESS_EQ,
+    BIN_NOT_EQUAL,
 
     // assignment
     BIN_ASSIGN,
@@ -25,7 +26,6 @@ typedef enum BinaryOp {
     // logical operators
     BIN_LOGICAL_AND,
     BIN_LOGICAL_OR,
-    BIN_NOT_EQUAL,
 } BinaryOp;
 
 // needs to match lexer
