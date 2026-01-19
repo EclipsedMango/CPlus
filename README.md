@@ -45,7 +45,7 @@ int main() {
 #### Compiling and running
 
 - **Step 1:** Compile the C+ compiler and compile your C+ program
-  - ````gcc main.c common.c lexer/*.c parser/*.c semantic/*.c codegen/codegen.c -o compiler $(llvm-config --cflags) -lLLVM && ./compiler C+/main.cp````
+  - ````./compile.sh````
 
 - **Step 2:** Link and run your program
   - ````gcc output.o -o program && ./program````
