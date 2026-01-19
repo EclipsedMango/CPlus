@@ -10,7 +10,11 @@ static int is_arithmetic_op(const BinaryOp op) {
 }
 
 static int is_comparison_op(const BinaryOp op) {
-    return op == BIN_EQUAL || op == BIN_GREATER || op == BIN_LESS || op == BIN_GREATER_EQ || op == BIN_LESS_EQ;
+    return op == BIN_EQUAL || op == BIN_GREATER || op == BIN_LESS || op == BIN_GREATER_EQ || op == BIN_LESS_EQ || op == BIN_NOT_EQUAL;
+}
+
+static int is_logical_op(const BinaryOp op) {
+    return op == BIN_LOGICAL_AND || op == BIN_LOGICAL_OR;
 }
 
 static int is_assignment_op(const BinaryOp op) {
@@ -20,7 +24,6 @@ static int is_assignment_op(const BinaryOp op) {
 static int is_numeric_type(const TypeKind t) {
     return t == TYPE_INT || t == TYPE_LONG || t == TYPE_FLOAT || t == TYPE_DOUBLE;
 }
-
 
 Scope* scope_create(Scope* parent) {
     Scope* new_scope = malloc(sizeof(Scope));
@@ -78,12 +81,14 @@ Symbol* scope_lookup_recursive(const Scope* scope, const char* name) {
 
 static void analyze_expression(ExprNode* expr, Scope* scope) {
     switch (expr->kind) {
-        case EXPR_NUMBER:
+        case EXPR_NUMBER: {
             expr->type = TYPE_INT;
             break;
-        case EXPR_STRING_LITERAL:
+        }
+        case EXPR_STRING_LITERAL: {
             expr->type = TYPE_STRING;
             break;
+        }
         case EXPR_VAR: {
             // look up variable
             Symbol *sym = scope_lookup_recursive(scope, expr->text);
@@ -95,7 +100,30 @@ static void analyze_expression(ExprNode* expr, Scope* scope) {
             expr->type = sym->type;
             break;
         }
-        case EXPR_BINOP:
+        case EXPR_UNARY: {
+            analyze_expression(expr->unary.operand, scope);
+
+            if (expr->unary.op == UNARY_NOT) {
+                if (expr->unary.operand->type == TYPE_VOID || expr->unary.operand->type == TYPE_STRING) {
+                    fprintf(stderr, "Error: Invalid type for '!' operator\n");
+                    exit(1);
+                }
+
+                expr->type = TYPE_BOOLEAN;
+            }
+
+            else if (expr->unary.op == UNARY_NEG) {
+                if (!is_numeric_type(expr->unary.operand->type)) {
+                    fprintf(stderr, "Error: Invalid type for unary '-' operator\n");
+                    exit(1);
+                }
+
+                expr->type = expr->unary.operand->type;
+            }
+
+            break;
+        }
+        case EXPR_BINOP: {
             analyze_expression(expr->binop.left, scope);
             analyze_expression(expr->binop.right, scope);
 
@@ -134,6 +162,11 @@ static void analyze_expression(ExprNode* expr, Scope* scope) {
                     exit(1);
                 }
 
+                if (expr->binop.left->kind != EXPR_VAR) {
+                    fprintf(stderr, "Error: left-hand side of assignment is not assignable\n");
+                    exit(1);
+                }
+
                 if (lhs != rhs) {
                     fprintf(stderr, "Error: type mismatch in assignment\n");
                     exit(1);
@@ -143,8 +176,19 @@ static void analyze_expression(ExprNode* expr, Scope* scope) {
                 break;
             }
 
+            if (is_logical_op(op)) {
+                if (lhs != TYPE_BOOLEAN || rhs != TYPE_BOOLEAN) {
+                    fprintf(stderr, "Error: logical operators require boolean operands\n");
+                    exit(1);
+                }
+
+                expr->type = TYPE_BOOLEAN;
+                break;
+            }
+
             fprintf(stderr, "Error: unknown binary operator\n");
             exit(1);
+        }
         case EXPR_CALL: {
             // look up function
             Symbol *func_sym = scope_lookup_recursive(scope, expr->call.function_name);

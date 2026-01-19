@@ -20,7 +20,12 @@ typedef enum BinaryOp {
     BIN_LESS_EQ,
 
     // assignment
-    BIN_ASSIGN
+    BIN_ASSIGN,
+
+    // logical operators
+    BIN_LOGICAL_AND,
+    BIN_LOGICAL_OR,
+    BIN_NOT_EQUAL,
 } BinaryOp;
 
 // needs to match lexer
@@ -46,7 +51,8 @@ typedef struct ExprNode {
         EXPR_STRING_LITERAL,
         EXPR_VAR,
         EXPR_BINOP,
-        EXPR_CALL
+        EXPR_UNARY,
+        EXPR_CALL,
     } kind;
     SourceLocation location;
     TypeKind type;
@@ -57,6 +63,10 @@ typedef struct ExprNode {
             struct ExprNode *right;
             BinaryOp op;
         } binop;
+        struct {
+            UnaryOp op;
+            struct ExprNode *operand;
+        } unary;
         struct {
             char *function_name;
             struct ExprNode **args;

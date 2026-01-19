@@ -109,7 +109,7 @@ static Token lex_identifier_or_keyword(FILE *f, const int first) {
     if (strcmp(lexeme, KW_BOOL) == 0)   tok = (Token){ .type = TOK_BOOL, .lexeme = KW_BOOL, .location = loc };
     if (strcmp(lexeme, KW_RETURN) == 0) tok = (Token){ .type = TOK_RETURN, .lexeme = KW_RETURN, .location = loc };
     if (strcmp(lexeme, KW_IF) == 0)     tok = (Token){ .type = TOK_IF, .lexeme = KW_IF, .location = loc };
-    if (strcmp(lexeme, KW_ELSE) == 0)   tok = (Token){ .type = TOK_IF, .lexeme = KW_ELSE, .location = loc };
+    if (strcmp(lexeme, KW_ELSE) == 0)   tok = (Token){ .type = TOK_ELSE, .lexeme = KW_ELSE, .location = loc };
     if (strcmp(lexeme, KW_ASM) == 0)    tok = (Token){ .type = TOK_ASM, .lexeme = KW_ASM, .location = loc };
 
     vector_destroy(&buffer);
@@ -199,23 +199,44 @@ static Token lex_operator_or_punct(FILE *f, const int c) {
 
     switch (c) {
         // operators with possible lookahead
-        case '=':
+        case '=': {
             next = next_char(f);
             if (next == '=') return (Token){TOK_EQUAL_EQUAL, OP_EQUAL_EQUAL, loc };
             ungetc(next, f);
             return (Token){TOK_ASSIGN, OP_ASSIGN, loc };
-
-        case '>':
+        }
+        case '>': {
             next = next_char(f);
             if (next == '=') return (Token){TOK_GREATER_EQUALS, OP_GREATER_EQUALS, loc };
             ungetc(next, f);
             return (Token){TOK_GREATER, OP_GREATER, loc };
-
-        case '<':
+        }
+        case '<': {
             next = next_char(f);
             if (next == '=') return (Token){TOK_LESS_EQUALS, OP_LESS_EQUALS, loc };
             ungetc(next, f);
             return (Token){TOK_LESS, OP_LESS, loc};
+        }
+        case '&': {
+            next = next_char(f);
+            if (next == '&') return (Token){TOK_AND, "&&", loc };
+            ungetc(next, f);
+            fprintf(stderr, "unexpected character: &\n");
+            exit(1);
+        }
+        case '|': {
+            next = next_char(f);
+            if (next == '|') return (Token){TOK_OR, "||", loc };
+            ungetc(next, f);
+            fprintf(stderr, "unexpected character: |\n");
+            exit(1);
+        }
+        case '!': {
+            next = next_char(f);
+            if (next == '=') return (Token){TOK_NOT_EQUAL, "!=", loc };
+            ungetc(next, f);
+            return (Token){TOK_NOT, "!", loc };
+        }
 
             // single-char operators
         case '+': return (Token){.type = TOK_PLUS, OP_PLUS, loc};

@@ -42,6 +42,12 @@ typedef enum {
     TOK_GREATER_EQUALS,
     TOK_LESS_EQUALS,
 
+    // logical operators
+    TOK_AND,
+    TOK_OR,
+    TOK_NOT,
+    TOK_NOT_EQUAL,
+
     // punctuation / delimiters
     TOK_LPAREN,
     TOK_RPAREN,

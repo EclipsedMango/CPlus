@@ -49,16 +49,17 @@ static LLVMContextRef context;
 
 static LLVMTypeRef get_llvm_type(const TypeKind type) {
     switch (type) {
-        case TYPE_INT:    return LLVMInt32TypeInContext(context);
-        case TYPE_LONG:   return LLVMInt64TypeInContext(context);
-        case TYPE_FLOAT:  return LLVMFloatTypeInContext(context);
-        case TYPE_DOUBLE: return LLVMDoubleTypeInContext(context);
+        case TYPE_INT:     return LLVMInt32TypeInContext(context);
+        case TYPE_LONG:    return LLVMInt64TypeInContext(context);
+        case TYPE_FLOAT:   return LLVMFloatTypeInContext(context);
+        case TYPE_DOUBLE:  return LLVMDoubleTypeInContext(context);
         case TYPE_BOOLEAN: return LLVMInt1TypeInContext(context);
-        case TYPE_VOID:   return LLVMVoidTypeInContext(context);
-        case TYPE_STRING: return LLVMPointerType(LLVMInt8TypeInContext(context), 0);
-        default:
+        case TYPE_VOID:    return LLVMVoidTypeInContext(context);
+        case TYPE_STRING:  return LLVMPointerType(LLVMInt8TypeInContext(context), 0);
+        default: {
             fprintf(stderr, "Unsupported type in codegen\n");
             exit(1);
+        }
     }
 }
 
@@ -106,15 +107,11 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
             const LLVMValueRef right = codegen_expression(expr->binop.right);
 
             switch (expr->binop.op) {
-                case BIN_ADD:
-                    return LLVMBuildAdd(builder, left, right, "addtmp");
-                case BIN_SUB:
-                    return LLVMBuildSub(builder, left, right, "subtmp");
-                case BIN_MUL:
-                    return LLVMBuildMul(builder, left, right, "multmp");
-                case BIN_DIV:
-                    return LLVMBuildSDiv(builder, left, right, "divtmp");
-                case BIN_ASSIGN:
+                case BIN_ADD: return LLVMBuildAdd(builder, left, right, "addtmp");
+                case BIN_SUB: return LLVMBuildSub(builder, left, right, "subtmp");
+                case BIN_MUL: return LLVMBuildMul(builder, left, right, "multmp");
+                case BIN_DIV: return LLVMBuildSDiv(builder, left, right, "divtmp");
+                case BIN_ASSIGN: {
                     if (expr->binop.left->kind != EXPR_VAR) {
                         fprintf(stderr, "Left-hand side of assignment must be a variable\n");
                         exit(1);
@@ -130,20 +127,47 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
                     LLVMBuildStore(builder, rhs_val, lhs_ptr);
 
                     return rhs_val;
-                case BIN_LESS:
-                    return LLVMBuildICmp(builder, LLVMIntSLT, left, right, "cmptmp");
-                case BIN_GREATER:
-                    return LLVMBuildICmp(builder, LLVMIntSGT, left, right, "cmptmp");
-                case BIN_LESS_EQ:
-                    return LLVMBuildICmp(builder, LLVMIntSLE, left, right, "cmptmp");
-                case BIN_GREATER_EQ:
-                    return LLVMBuildICmp(builder, LLVMIntSGE, left, right, "cmptmp");
-                case BIN_EQUAL:
-                    return LLVMBuildICmp(builder, LLVMIntEQ, left, right, "cmptmp");
-                default:
+                }
+                case BIN_LESS: return LLVMBuildICmp(builder, LLVMIntSLT, left, right, "cmptmp");
+                case BIN_GREATER: return LLVMBuildICmp(builder, LLVMIntSGT, left, right, "cmptmp");
+                case BIN_LESS_EQ: return LLVMBuildICmp(builder, LLVMIntSLE, left, right, "cmptmp");
+                case BIN_GREATER_EQ: return LLVMBuildICmp(builder, LLVMIntSGE, left, right, "cmptmp");
+                case BIN_EQUAL: return LLVMBuildICmp(builder, LLVMIntEQ, left, right, "cmptmp");
+                case BIN_NOT_EQUAL: return LLVMBuildICmp(builder, LLVMIntNE, left, right, "neqtmp");
+                case BIN_LOGICAL_AND: {
+                    // LLVM Logical And works on i1 (1-bit integers)
+                    // Convert operands to boolean (i1) by checking != 0
+                    LLVMValueRef l_bool = LLVMBuildIsNotNull(builder, left, "l_bool");
+                    LLVMValueRef r_bool = LLVMBuildIsNotNull(builder, right, "r_bool");
+                    return LLVMBuildAnd(builder, l_bool, r_bool, "andtmp");
+                }
+                case BIN_LOGICAL_OR: {
+                    LLVMValueRef l_bool = LLVMBuildIsNotNull(builder, left, "l_bool");
+                    LLVMValueRef r_bool = LLVMBuildIsNotNull(builder, right, "r_bool");
+                    return LLVMBuildOr(builder, l_bool, r_bool, "ortmp");
+                }
+                default: {
                     fprintf(stderr, "Unsupported binary operator\n");
                     exit(1);
+                }
             }
+        }
+        case EXPR_UNARY: {
+            LLVMValueRef operand = codegen_expression(expr->unary.operand);
+            if (expr->unary.op == UNARY_NOT) {
+                LLVMValueRef zero = LLVMConstNull(LLVMTypeOf(operand));
+                return LLVMBuildICmp(builder, LLVMIntEQ, operand, zero, "nottmp");
+            }
+
+            if (expr->unary.op == UNARY_NEG) {
+                // check if we need float negation or integer negation
+                if (expr->type == TYPE_FLOAT || expr->type == TYPE_DOUBLE) {
+                    return LLVMBuildFNeg(builder, operand, "negtmp");
+                }
+
+                return LLVMBuildNeg(builder, operand, "negtmp");
+            }
+            break;
         }
         case EXPR_CALL: {
             const LLVMValueRef func = LLVMGetNamedFunction(module, expr->call.function_name);
@@ -164,9 +188,10 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
             free(args);
             return result;
         }
-        default:
+        default: {
             fprintf(stderr, "Unsupported expression kind: %d\n", expr->kind);
             exit(1);
+        }
     }
 }
 
@@ -268,9 +293,10 @@ static void codegen_statement(const StmtNode* stmt) {
             }
             break;
         }
-        default:
+        default: {
             fprintf(stderr, "Unsupported statement kind: %d\n", stmt->kind);
             exit(1);
+        }
     }
 }
 
