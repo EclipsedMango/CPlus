@@ -18,10 +18,12 @@ static TypeKind token_to_typekind(const TokenType token) {
 }
 
 StmtNode* parse_return_stmt(void) {
+    const SourceLocation loc = current_token().location;
     expect(TOK_RETURN);
 
     StmtNode* stmt = malloc(sizeof(StmtNode));
     stmt->kind = STMT_RETURN;
+    stmt->location = loc;
 
     // only parse expression if next token is NOT a semicolon
     if (current_token().type != TOK_SEMI) {
@@ -35,10 +37,12 @@ StmtNode* parse_return_stmt(void) {
 }
 
 StmtNode* parse_if_stmt(void) {
+    const SourceLocation loc = current_token().location;
     expect(TOK_IF);
 
     StmtNode* stmt = malloc(sizeof *stmt);
     stmt->kind = STMT_IF;
+    stmt->location = loc;
     stmt->if_stmt.else_stmt = NULL;
 
     expect(TOK_LPAREN);
@@ -55,9 +59,35 @@ StmtNode* parse_if_stmt(void) {
     return stmt;
 }
 
+StmtNode* parse_asm_stmt(void) {
+    const SourceLocation loc = current_token().location;
+    expect(TOK_ASM);
+    expect(TOK_LPAREN);
+
+    // expect a string literal containing assembly code
+    if (current_token().type != TOK_STRING_LITERAL) {
+        fprintf(stderr, "Error: expected assembly string after 'asm('\n");
+        exit(1);
+    }
+
+    char *asm_code = strdup(current_token().lexeme);
+    advance();
+
+    expect(TOK_RPAREN);
+    expect(TOK_SEMI);
+
+    StmtNode *stmt = malloc(sizeof(StmtNode));
+    stmt->kind = STMT_ASM;
+    stmt->location = loc;
+    stmt->asm_stmt.assembly_code = asm_code;
+
+    return stmt;
+}
+
 StmtNode* parse_var_decl(void) {
     // read and convert type
     const Token type_tok = current_token();
+    const SourceLocation loc = type_tok.location;
     const TypeKind type = token_to_typekind(type_tok.type);
     advance();
 
@@ -77,6 +107,7 @@ StmtNode* parse_var_decl(void) {
     // build AST node
     StmtNode *stmt = malloc(sizeof(StmtNode));
     stmt->kind = STMT_VAR_DECL;
+    stmt->location = loc;
     stmt->var_decl.type = type;
     stmt->var_decl.name = strdup(name_token.lexeme);
     stmt->var_decl.initializer = initializer;
@@ -85,8 +116,11 @@ StmtNode* parse_var_decl(void) {
 }
 
 StmtNode* parse_expr_stmt(void) {
+    const SourceLocation loc = current_token().location;
+
     StmtNode* stmt = malloc(sizeof(StmtNode));
     stmt->kind = STMT_EXPR;
+    stmt->location = loc;
     stmt->expr_stmt.expr = parse_expression();
 
     expect(TOK_SEMI);
@@ -94,6 +128,7 @@ StmtNode* parse_expr_stmt(void) {
 }
 
 StmtNode* parse_compound_stmt(void) {
+    const SourceLocation loc = current_token().location;
     expect(TOK_LBRACE);
 
     // allocate statement list (grow dynamically or use fixed size)
@@ -108,6 +143,7 @@ StmtNode* parse_compound_stmt(void) {
 
     StmtNode* stmt = malloc(sizeof(StmtNode));
     stmt->kind = STMT_COMPOUND;
+    stmt->location = loc;
     stmt->compound.stmts = stmts.elements;
     stmt->compound.count = stmts.length;
 
@@ -125,6 +161,11 @@ StmtNode* parse_statement(void) {
     // if statement
     if (t.type == TOK_IF) {
         return parse_if_stmt();
+    }
+
+    // asm statement
+    if (t.type == TOK_ASM) {
+        return parse_asm_stmt();
     }
 
     // variable declaration (starts with type)

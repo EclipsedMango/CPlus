@@ -224,6 +224,26 @@ static void codegen_statement(const StmtNode* stmt) {
             LLVMPositionBuilderAtEnd(builder, merge_block);
             break;
         }
+        case STMT_ASM: {
+            // create inline assembly
+            LLVMTypeRef void_type = LLVMVoidTypeInContext(context);
+            LLVMTypeRef asm_fn_type = LLVMFunctionType(void_type, NULL, 0, 0);
+
+            LLVMValueRef asm_val = LLVMGetInlineAsm(
+                asm_fn_type,
+                stmt->asm_stmt.assembly_code,
+                strlen(stmt->asm_stmt.assembly_code),
+                "",  // constraints (empty for basic asm)
+                0,   // constraints length
+                1,   // hasSideEffects (set to 1 to be safe)
+                0,   // isAlignStack
+                LLVMInlineAsmDialectIntel,  // intel syntax
+                0    // canThrow
+            );
+
+            LLVMBuildCall2(builder, asm_fn_type, asm_val, NULL, 0, "");
+            break;
+        }
         case STMT_VAR_DECL: {
             // allocate space for variable
             const LLVMTypeRef var_type = get_llvm_type(stmt->var_decl.type);
@@ -293,6 +313,7 @@ void codegen_program(const ProgramNode* program, const char* output_file) {
     // init
     LLVMInitializeNativeTarget();
     LLVMInitializeNativeAsmPrinter();
+    LLVMInitializeNativeAsmParser();
 
     // create context, module, builder
     context = LLVMContextCreate();

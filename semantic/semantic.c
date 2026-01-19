@@ -199,6 +199,9 @@ static void analyze_statement(const StmtNode* stmt, Scope* scope) {
 
             break;
         }
+        case STMT_ASM: {
+            break;
+        }
         case STMT_VAR_DECL: {
             // check if variable already exists in current scope
             const Symbol *existing = scope_lookup(scope, stmt->var_decl.name);

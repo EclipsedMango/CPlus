@@ -72,6 +72,7 @@ typedef struct StmtNode {
         STMT_VAR_DECL,
         STMT_EXPR,
         STMT_COMPOUND,
+        STMT_ASM,
     } kind;
     SourceLocation location;
     union {
@@ -86,7 +87,7 @@ typedef struct StmtNode {
         struct {
             TypeKind type;
             char *name;
-            ExprNode *initializer;  // NULL if no initializer
+            ExprNode *initializer;  // nullptr if no initializer
         } var_decl;
         struct {
             ExprNode *expr;
@@ -95,6 +96,9 @@ typedef struct StmtNode {
             struct StmtNode **stmts;
             int count;
         } compound;
+        struct {
+            char *assembly_code;
+        } asm_stmt;
     };
 } StmtNode;
 

@@ -17,6 +17,8 @@ static char *KW_STRING = "string";
 static char *KW_BOOL = "bool";
 static char *KW_RETURN = "return";
 static char *KW_IF     = "if";
+static char *KW_ELSE = "else";
+static char *KW_ASM = "asm";
 
 // operators
 static char *OP_ASSIGN          = "=";
@@ -107,6 +109,8 @@ static Token lex_identifier_or_keyword(FILE *f, const int first) {
     if (strcmp(lexeme, KW_BOOL) == 0)   tok = (Token){ .type = TOK_BOOL, .lexeme = KW_BOOL, .location = loc };
     if (strcmp(lexeme, KW_RETURN) == 0) tok = (Token){ .type = TOK_RETURN, .lexeme = KW_RETURN, .location = loc };
     if (strcmp(lexeme, KW_IF) == 0)     tok = (Token){ .type = TOK_IF, .lexeme = KW_IF, .location = loc };
+    if (strcmp(lexeme, KW_ELSE) == 0)   tok = (Token){ .type = TOK_IF, .lexeme = KW_ELSE, .location = loc };
+    if (strcmp(lexeme, KW_ASM) == 0)    tok = (Token){ .type = TOK_ASM, .lexeme = KW_ASM, .location = loc };
 
     vector_destroy(&buffer);
     return tok;
