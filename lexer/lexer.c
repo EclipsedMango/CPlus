@@ -11,10 +11,12 @@ static const char *current_filename = NULL;
 // keywords
 static char *KW_INT    = "int";
 static char *KW_LONG   = "long";
+static char *KW_CHAR   = "char";
 static char *KW_FLOAT  = "float";
 static char *KW_DOUBLE = "double";
 static char *KW_STRING = "string";
 static char *KW_BOOL = "bool";
+static char *KW_VOID = "void";
 static char *KW_RETURN = "return";
 static char *KW_IF     = "if";
 static char *KW_ELSE = "else";
@@ -118,10 +120,12 @@ static Token lex_identifier_or_keyword(FILE *f, const int first) {
     Token tok = (Token){ .type = TOK_IDENTIFIER, .lexeme = strdup(lexeme), .location = loc };
     if (strcmp(lexeme, KW_INT) == 0)    tok = (Token){ .type = TOK_INT, .lexeme = KW_INT, .location = loc };
     if (strcmp(lexeme, KW_LONG) == 0)   tok = (Token){ .type = TOK_LONG, .lexeme = KW_LONG, .location = loc };
+    if (strcmp(lexeme, KW_CHAR) == 0)   tok = (Token){ .type = TOK_CHAR, .lexeme = KW_CHAR, .location = loc };
     if (strcmp(lexeme, KW_FLOAT) == 0)  tok = (Token){ .type = TOK_FLOAT, .lexeme = KW_FLOAT, .location = loc };
     if (strcmp(lexeme, KW_DOUBLE) == 0) tok = (Token){ .type = TOK_DOUBLE, .lexeme = KW_DOUBLE, .location = loc };
     if (strcmp(lexeme, KW_STRING) == 0) tok = (Token){ .type = TOK_STRING_KW, .lexeme = KW_STRING, .location = loc };
     if (strcmp(lexeme, KW_BOOL) == 0)   tok = (Token){ .type = TOK_BOOL, .lexeme = KW_BOOL, .location = loc };
+    if (strcmp(lexeme, KW_VOID) == 0)   tok = (Token){ .type = TOK_VOID, .lexeme = KW_VOID, .location = loc };
     if (strcmp(lexeme, KW_RETURN) == 0) tok = (Token){ .type = TOK_RETURN, .lexeme = KW_RETURN, .location = loc };
     if (strcmp(lexeme, KW_IF) == 0)     tok = (Token){ .type = TOK_IF, .lexeme = KW_IF, .location = loc };
     if (strcmp(lexeme, KW_ELSE) == 0)   tok = (Token){ .type = TOK_ELSE, .lexeme = KW_ELSE, .location = loc };
@@ -293,10 +297,12 @@ const char* token_type_to_string(const TokenType type) {
     switch (type) {
         case TOK_INT: return KW_INT;
         case TOK_LONG: return KW_LONG;
+        case TOK_CHAR: return KW_CHAR;
         case TOK_FLOAT: return KW_FLOAT;
         case TOK_DOUBLE: return KW_DOUBLE;
         case TOK_STRING_KW: return KW_STRING;
         case TOK_BOOL: return KW_BOOL;
+        case TOK_VOID: return KW_VOID;
         case TOK_RETURN: return KW_RETURN;
         case TOK_IF: return KW_IF;
         case TOK_ELSE: return KW_ELSE;

@@ -51,6 +51,7 @@ static LLVMTypeRef get_llvm_type(const TypeKind type) {
     switch (type) {
         case TYPE_INT:     return LLVMInt32TypeInContext(context);
         case TYPE_LONG:    return LLVMInt64TypeInContext(context);
+        case TYPE_CHAR:    return LLVMInt8TypeInContext(context);
         case TYPE_FLOAT:   return LLVMFloatTypeInContext(context);
         case TYPE_DOUBLE:  return LLVMDoubleTypeInContext(context);
         case TYPE_BOOLEAN: return LLVMInt1TypeInContext(context);
@@ -244,13 +245,13 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
 static void codegen_statement(const StmtNode* stmt) {
     switch (stmt->kind) {
         case STMT_RETURN: {
-            if (!stmt->return_stmt.expr) {
-                fprintf(stderr, "Error: return statement has no expression\n");
-                exit(1);
+            if (stmt->return_stmt.expr) {
+                const LLVMValueRef ret_val = codegen_expression(stmt->return_stmt.expr);
+                LLVMBuildRet(builder, ret_val);
+            } else {
+                LLVMBuildRetVoid(builder);
             }
 
-            const LLVMValueRef ret_val = codegen_expression(stmt->return_stmt.expr);
-            LLVMBuildRet(builder, ret_val);
             break;
         }
         case STMT_IF: {
@@ -296,23 +297,83 @@ static void codegen_statement(const StmtNode* stmt) {
             break;
         }
         case STMT_ASM: {
-            // create inline assembly
+            // Evaluate input expressions and potentially extend them
+            LLVMValueRef *inputs = malloc(sizeof(LLVMValueRef) * stmt->asm_stmt.input_count);
+            LLVMTypeRef *input_types = malloc(sizeof(LLVMTypeRef) * stmt->asm_stmt.input_count);
+
+            Vector constraint_str = create_vector(128, sizeof(char));
+
+            for (int i = 0; i < stmt->asm_stmt.input_count; i++) {
+                LLVMValueRef val = codegen_expression(stmt->asm_stmt.inputs[i]);
+
+                // For pointers and 64-bit values, ensure they're i64
+                LLVMTypeRef val_type = LLVMTypeOf(val);
+                LLVMTypeKind kind = LLVMGetTypeKind(val_type);
+
+                if (kind == LLVMPointerTypeKind) {
+                    val = LLVMBuildPtrToInt(builder, val, LLVMInt64TypeInContext(context), "ptrtoint");
+                    input_types[i] = LLVMInt64TypeInContext(context);
+                } else if (kind == LLVMIntegerTypeKind) {
+                    unsigned width = LLVMGetIntTypeWidth(val_type);
+                    if (width < 64) {
+                        val = LLVMBuildZExt(builder, val, LLVMInt64TypeInContext(context), "ext64");
+                        input_types[i] = LLVMInt64TypeInContext(context);
+                    } else {
+                        input_types[i] = val_type;
+                    }
+                } else {
+                    input_types[i] = val_type;
+                }
+
+                inputs[i] = val;
+
+                // Build constraint string
+                const char *c = stmt->asm_stmt.constraints[i];
+                for (const char *p = c; *p; p++) {
+                    vector_push(&constraint_str, (void*)p);
+                }
+                if (i < stmt->asm_stmt.input_count - 1) {
+                    char comma = ',';
+                    vector_push(&constraint_str, &comma);
+                }
+            }
+
+            // Add clobber list for syscall
+            // Format: "r,r,~{rax},~{rcx},~{r11},~{rdi},~{rsi},~{rdx},~{memory}"
+            const char *clobbers = ",~{rax},~{rcx},~{r11},~{rdi},~{rsi},~{rdx},~{memory}";
+            for (const char *p = clobbers; *p; p++) {
+                vector_push(&constraint_str, (void*)p);
+            }
+
+            char null_term = '\0';
+            vector_push(&constraint_str, &null_term);
+
+            // Create function type for inline asm
             LLVMTypeRef void_type = LLVMVoidTypeInContext(context);
-            LLVMTypeRef asm_fn_type = LLVMFunctionType(void_type, NULL, 0, 0);
+            LLVMTypeRef asm_fn_type = LLVMFunctionType(
+                void_type,
+                input_types,
+                stmt->asm_stmt.input_count,
+                0
+            );
 
             LLVMValueRef asm_val = LLVMGetInlineAsm(
                 asm_fn_type,
                 stmt->asm_stmt.assembly_code,
                 strlen(stmt->asm_stmt.assembly_code),
-                "",  // constraints (empty for basic asm)
-                0,   // constraints length
-                1,   // hasSideEffects (set to 1 to be safe)
-                0,   // isAlignStack
-                LLVMInlineAsmDialectIntel,  // intel syntax
-                0    // canThrow
+                (char*)constraint_str.elements,
+                strlen((char*)constraint_str.elements),
+                1,  // hasSideEffects
+                0,  // isAlignStack
+                LLVMInlineAsmDialectIntel,
+                0   // canThrow
             );
 
-            LLVMBuildCall2(builder, asm_fn_type, asm_val, NULL, 0, "");
+            LLVMBuildCall2(builder, asm_fn_type, asm_val, inputs, stmt->asm_stmt.input_count, "");
+
+            free(inputs);
+            free(input_types);
+            vector_destroy(&constraint_str);
             break;
         }
         case STMT_VAR_DECL: {
@@ -378,6 +439,19 @@ static void codegen_function(const FunctionNode* func) {
     }
 
     codegen_statement(func->body);
+
+    // Add default return if block is not terminated
+    LLVMBasicBlockRef current_block = LLVMGetInsertBlock(builder);
+    if (!LLVMGetBasicBlockTerminator(current_block)) {
+        if (func->return_type == TYPE_VOID) {
+            LLVMBuildRetVoid(builder);
+        } else {
+            // Return default value (0 for int, nullptr for pointers, etc.)
+            LLVMValueRef default_val = LLVMConstNull(ret_type);
+            LLVMBuildRet(builder, default_val);
+        }
+    }
+
     free(param_types);
 }
 

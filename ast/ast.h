@@ -32,6 +32,7 @@ typedef enum BinaryOp {
 typedef enum TypeKind {
     TYPE_INT,
     TYPE_LONG,
+    TYPE_CHAR,
     TYPE_FLOAT,
     TYPE_DOUBLE,
     TYPE_STRING,
@@ -112,6 +113,9 @@ typedef struct StmtNode {
         } compound;
         struct {
             char *assembly_code;
+            ExprNode **inputs;
+            int input_count;
+            char **constraints;
         } asm_stmt;
     };
 } StmtNode;

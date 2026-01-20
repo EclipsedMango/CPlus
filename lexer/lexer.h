@@ -7,12 +7,15 @@ typedef enum {
     // keywords
     TOK_INT,
     TOK_LONG,
+    TOK_CHAR,
 
     TOK_FLOAT,
     TOK_DOUBLE,
 
     TOK_STRING_KW,
     TOK_BOOL,
+
+    TOK_VOID,
 
     TOK_RETURN,
     TOK_IF,

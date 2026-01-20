@@ -9,6 +9,7 @@ static const char* type_to_str(const TypeKind t) {
     switch(t) {
         case TYPE_INT: return "int";
         case TYPE_LONG: return "long";
+        case TYPE_CHAR: return "char";
         case TYPE_FLOAT: return "float";
         case TYPE_DOUBLE: return "double";
         case TYPE_STRING: return "string";
@@ -35,7 +36,7 @@ static int is_assignment_op(const BinaryOp op) {
 }
 
 static int is_numeric_type(const TypeKind t) {
-    return t == TYPE_INT || t == TYPE_LONG || t == TYPE_FLOAT || t == TYPE_DOUBLE;
+    return t == TYPE_INT || t == TYPE_LONG || t == TYPE_FLOAT || t == TYPE_DOUBLE || t == TYPE_CHAR;
 }
 
 Scope* scope_create(Scope* parent) {
@@ -236,13 +237,35 @@ static void analyze_expression(ExprNode* expr, Scope* scope) {
     }
 }
 
-static void analyze_statement(const StmtNode* stmt, Scope* scope) {
+static bool analyze_statement(const StmtNode* stmt, Scope* scope, const TypeKind expected_ret_type) {
     switch (stmt->kind) {
         case STMT_RETURN: {
             if (stmt->return_stmt.expr) {
+                if (expected_ret_type == TYPE_VOID) {
+                    report_error(stmt->location, "Void function cannot return a value.");
+                }
+
                 analyze_expression(stmt->return_stmt.expr, scope);
+
+                bool types_match = (stmt->return_stmt.expr->type == expected_ret_type);
+
+                if (stmt->return_stmt.expr->pointer_level != 0 && expected_ret_type == TYPE_VOID) {
+                    types_match = false;
+                }
+
+                if (!types_match) {
+                    report_error(stmt->location,
+                        "Return type mismatch. Expected '%s', got '%s'.",
+                        type_to_str(expected_ret_type),
+                        type_to_str(stmt->return_stmt.expr->type)
+                    );
+                }
+            } else {
+                if (expected_ret_type != TYPE_VOID) {
+                    report_error(stmt->location, "Non-void function must return a value of type '%s'.", type_to_str(expected_ret_type));
+                }
             }
-            break;
+            return true;
         }
         case STMT_IF: {
             analyze_expression(stmt->if_stmt.condition, scope);
@@ -251,20 +274,30 @@ static void analyze_statement(const StmtNode* stmt, Scope* scope) {
                 report_error(stmt->location, "If condition must be boolean. Got '%s'.", type_to_str(stmt->if_stmt.condition->type));
             }
 
+            bool then_returns = false;
             if (stmt->if_stmt.then_stmt) {
-                analyze_statement(stmt->if_stmt.then_stmt, scope);
+                then_returns = analyze_statement(stmt->if_stmt.then_stmt, scope, expected_ret_type);
             }
 
+            bool else_returns = false;
             if (stmt->if_stmt.else_stmt) {
-                analyze_statement(stmt->if_stmt.else_stmt, scope);
+                else_returns = analyze_statement(stmt->if_stmt.else_stmt, scope, expected_ret_type);
             }
 
-            break;
+            return then_returns && else_returns;
         }
         case STMT_ASM: {
-            break;
+            for (int i = 0; i < stmt->asm_stmt.input_count; i++) {
+                analyze_expression(stmt->asm_stmt.inputs[i], scope);
+            }
+
+            return false;
         }
         case STMT_VAR_DECL: {
+            if (stmt->var_decl.type == TYPE_VOID && stmt->var_decl.pointer_level == 0) {
+                report_error(stmt->location, "Variable '%s' declared as void. Variables cannot be void (did you mean 'void*'?)", stmt->var_decl.name);
+            }
+
             // check if variable already exists in current scope
             const Symbol *existing = scope_lookup(scope, stmt->var_decl.name);
             if (existing) {
@@ -295,24 +328,26 @@ static void analyze_statement(const StmtNode* stmt, Scope* scope) {
                     );
                 }
             }
-            break;
+
+            return false;
         }
         case STMT_EXPR: {
-            // analyze the expression
             analyze_expression(stmt->expr_stmt.expr, scope);
-            break;
+            return false;
         }
         case STMT_COMPOUND: {
-            // create new scope for block
             Scope *block_scope = scope_create(scope);
+            bool does_return = false;
 
-            // analyze each statement in the block
             for (int i = 0; i < stmt->compound.count; i++) {
-                analyze_statement(stmt->compound.stmts[i], block_scope);
+                // if one returns, the block returns.
+                if (analyze_statement(stmt->compound.stmts[i], block_scope, expected_ret_type)) {
+                    does_return = true;
+                }
             }
 
             scope_destroy(block_scope);
-            break;
+            return does_return;
         }
         default: {
             fprintf(stderr, "Unknown statement kind: %d\n", stmt->kind);
@@ -341,7 +376,11 @@ static void analyze_function(const FunctionNode *func, Scope *global) {
         scope_add_symbol(func_scope, sym);
     }
 
-    analyze_statement(func->body, func_scope);
+    const bool returns_value = analyze_statement(func->body, func_scope, func->return_type);
+    if (func->return_type != TYPE_VOID && !returns_value) {
+        report_error(func->location, "Function '%s' is declared to return '%s' but not all control paths return a value.", func->name, type_to_str(func->return_type));
+    }
+
     scope_destroy(func_scope);
 }
 

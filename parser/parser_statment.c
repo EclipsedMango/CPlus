@@ -7,13 +7,16 @@ static TypeKind token_to_typekind(const TokenType token) {
     switch (token) {
         case TOK_INT: return TYPE_INT;
         case TOK_LONG: return TYPE_LONG;
+        case TOK_CHAR: return TYPE_CHAR;
         case TOK_FLOAT: return TYPE_FLOAT;
         case TOK_DOUBLE: return TYPE_DOUBLE;
         case TOK_STRING_KW: return TYPE_STRING;
         case TOK_BOOL: return TYPE_BOOLEAN;
-        default:
+        case TOK_VOID: return TYPE_VOID;
+        default: {
             fprintf(stderr, "invalid type token: %d\n", token);
             exit(1);
+        }
     }
 }
 
@@ -72,6 +75,19 @@ StmtNode* parse_asm_stmt(void) {
     char *asm_code = strdup(current_token().lexeme);
     advance();
 
+    Vector inputs = create_vector(4, sizeof(ExprNode*));
+    Vector constraints = create_vector(4, sizeof(char*));
+
+    while (current_token().type == TOK_COMMA) {
+        advance();
+        ExprNode *input = parse_expression();
+        vector_push(&inputs, &input);
+
+        // use "r" constraint
+        char *constraint = strdup("r");
+        vector_push(&constraints, &constraint);
+    }
+
     expect(TOK_RPAREN);
     expect(TOK_SEMI);
 
@@ -79,6 +95,9 @@ StmtNode* parse_asm_stmt(void) {
     stmt->kind = STMT_ASM;
     stmt->location = loc;
     stmt->asm_stmt.assembly_code = asm_code;
+    stmt->asm_stmt.inputs = inputs.elements;
+    stmt->asm_stmt.input_count = inputs.length;
+    stmt->asm_stmt.constraints = constraints.elements;
 
     return stmt;
 }

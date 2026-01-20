@@ -1,3 +1,8 @@
+void hello() {
+    int a = 10;
+    return;
+}
+
 int main() {
     int status = 0;
 
