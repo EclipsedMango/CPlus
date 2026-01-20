@@ -95,6 +95,18 @@ static ExprNode *parse_relational(void) {
 }
 
 static ExprNode *parse_unary(void) {
+    if (current_token().type == TOK_ASTERISK) {
+        advance();
+        ExprNode *operand = parse_unary();
+        return make_unaryop(UNARY_DEREF, operand);
+    }
+
+    if (current_token().type == TOK_AMPERSAND) {
+        advance();
+        ExprNode *operand = parse_unary();
+        return make_unaryop(UNARY_ADDR_OF, operand);
+    }
+
     if (current_token().type == TOK_SUBTRACT) {
         advance();
         ExprNode *operand = parse_unary();
@@ -114,10 +126,10 @@ static ExprNode *parse_unary(void) {
 static ExprNode *parse_term(void) {
     ExprNode *left = parse_unary();
 
-    while (current_token().type == TOK_MULTIPLY || current_token().type == TOK_DIVIDE) {
+    while (current_token().type == TOK_ASTERISK || current_token().type == TOK_DIVIDE || current_token().type == TOK_MODULO) {
         const TokenType op = current_token().type;
         advance();
-        ExprNode *right = parse_factor();
+        ExprNode *right = parse_unary();
         left = make_binop(op, left, right);
     }
 
@@ -198,7 +210,7 @@ static BinaryOp token_to_binop(const TokenType token) {
     switch (token) {
         case TOK_PLUS: return BIN_ADD;
         case TOK_SUBTRACT: return BIN_SUB;
-        case TOK_MULTIPLY: return BIN_MUL;
+        case TOK_ASTERISK: return BIN_MUL;
         case TOK_DIVIDE: return BIN_DIV;
         case TOK_MODULO: return BIN_MOD;
         case TOK_EQUAL_EQUAL: return BIN_EQUAL;
@@ -218,6 +230,7 @@ static ExprNode *make_number(const char *text) {
     ExprNode *e = malloc(sizeof(ExprNode));
     e->kind = EXPR_NUMBER;
     e->text = strdup(text);
+    e->pointer_level = 0;
     return e;
 }
 
@@ -225,6 +238,7 @@ static ExprNode *make_var(const char *name) {
     ExprNode *e = malloc(sizeof(ExprNode));
     e->kind = EXPR_VAR;
     e->text = strdup(name);
+    e->pointer_level = 0;
     return e;
 }
 
@@ -234,6 +248,7 @@ static ExprNode *make_binop(const TokenType op, ExprNode *left, ExprNode *right)
     e->binop.op = token_to_binop(op);
     e->binop.left = left;
     e->binop.right = right;
+    e->pointer_level = 0;
     return e;
 }
 
@@ -242,6 +257,7 @@ static ExprNode *make_unaryop(const UnaryOp op, ExprNode *operand) {
     e->kind = EXPR_UNARY;
     e->unary.op = op;
     e->unary.operand = operand;
+    e->pointer_level = 0;
     return e;
 }
 
@@ -249,6 +265,7 @@ static ExprNode *make_string_literal(const char *text) {
     ExprNode *e = malloc(sizeof(ExprNode));
     e->kind = EXPR_STRING_LITERAL;
     e->text = strdup(text);
+    e->pointer_level = 0;
     return e;
 }
 
@@ -258,5 +275,6 @@ static ExprNode *make_call(const char *name, ExprNode **args, const int count) {
     e->call.function_name = strdup(name);
     e->call.args = args;
     e->call.arg_count = count;
+    e->pointer_level = 0;
     return e;
 }

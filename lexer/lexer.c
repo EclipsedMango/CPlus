@@ -29,7 +29,8 @@ static char *OP_LESS            = "<";
 static char *OP_LESS_EQUALS     = "<=";
 static char *OP_PLUS            = "+";
 static char *OP_MINUS           = "-";
-static char *OP_MULTIPLY        = "*";
+static char *OP_ASTERISK        = "*";
+static char *OP_AMPERSAND       = "&";
 static char *OP_DIVIDE          = "/";
 static char *OP_MODULO          = "%";
 static char *OP_AND             = "&&";
@@ -192,9 +193,10 @@ static Token lex_string_literal(FILE *f) {
                 case 't':  ch = '\t'; break;
                 case '"':  ch = '"';  break;
                 case '\\': ch = '\\'; break;
-                default:
+                default: {
                     fprintf(stderr, "unknown escape: \\%c\n", c);
                     exit(1);
+                }
             }
         } else {
             ch = (char)c;
@@ -235,13 +237,13 @@ static Token lex_operator_or_punct(FILE *f, const int c) {
             next = next_char(f);
             if (next == '&') return (Token){TOK_AND, "&&", loc };
             ungetc(next, f);
-            report_error(loc, "Unexpected character '&'. Did you mean '&&'?");
-            exit(1);
+            return (Token){TOK_AMPERSAND, OP_AMPERSAND, loc};
         }
         case '|': {
             next = next_char(f);
             if (next == '|') return (Token){TOK_OR, "||", loc };
             ungetc(next, f);
+            // maybe add bitwise OR later?
             report_error(loc, "Unexpected character '|'. Did you mean '||'?");
             exit(1);
         }
@@ -252,14 +254,14 @@ static Token lex_operator_or_punct(FILE *f, const int c) {
             return (Token){TOK_NOT, "!", loc };
         }
 
-            // single-char operators
+        // single-char operators
         case '+': return (Token){.type = TOK_PLUS, OP_PLUS, loc};
         case '-': return (Token){.type = TOK_SUBTRACT, OP_MINUS, loc};
-        case '*': return (Token){.type = TOK_MULTIPLY, OP_MULTIPLY, loc};
+        case '*': return (Token){.type = TOK_ASTERISK, OP_ASTERISK, loc};
         case '/': return (Token){.type = TOK_DIVIDE, OP_DIVIDE, loc};
         case '%': return (Token){.type = TOK_MODULO, OP_MODULO, loc};
 
-            // punctuation / delimiters
+        // punctuation / delimiters
         case '(': return (Token){TOK_LPAREN, P_LPAREN, loc};
         case ')': return (Token){TOK_RPAREN, P_RPAREN, loc};
         case '{': return (Token){TOK_LBRACE, P_LBRACE, loc};
@@ -287,7 +289,7 @@ Token next_token(FILE *f) {
     exit(1);
 }
 
-const char* token_type_to_string(TokenType type) {
+const char* token_type_to_string(const TokenType type) {
     switch (type) {
         case TOK_INT: return KW_INT;
         case TOK_LONG: return KW_LONG;
@@ -305,7 +307,8 @@ const char* token_type_to_string(TokenType type) {
         case TOK_DECI_NUMBER: return DECI_NUMBER;
         case TOK_PLUS: return OP_PLUS;
         case TOK_SUBTRACT: return OP_MINUS;
-        case TOK_MULTIPLY: return OP_MULTIPLY;
+        case TOK_ASTERISK: return OP_ASTERISK;
+        case TOK_AMPERSAND: return OP_AMPERSAND;
         case TOK_DIVIDE: return OP_DIVIDE;
         case TOK_MODULO: return OP_MODULO;
         case TOK_ASSIGN: return OP_ASSIGN;

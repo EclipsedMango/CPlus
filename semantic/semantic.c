@@ -41,35 +41,32 @@ static int is_numeric_type(const TypeKind t) {
 Scope* scope_create(Scope* parent) {
     Scope* new_scope = malloc(sizeof(Scope));
     new_scope->parent = parent;
-    new_scope->symbol_count = 0;
-    new_scope->symbols = malloc(sizeof(Symbol*) * 16);
+    new_scope->symbols = create_vector(16, sizeof(Symbol*));
     return new_scope;
 }
 
 void scope_destroy(Scope* scope) {
-    for (int i = 0; i < scope->symbol_count; i++) {
-        free(scope->symbols[i]->name);
-        free(scope->symbols[i]);
+    for (int i = 0; i < scope->symbols.length; i++) {
+        Symbol **sym_ptr = vector_get(&scope->symbols, i);
+        if (sym_ptr && *sym_ptr) {
+            free((*sym_ptr)->name);
+            free(*sym_ptr);
+        }
     }
 
-    free(scope->symbols);
+    vector_destroy(&scope->symbols);
     free(scope);
 }
 
 void scope_add_symbol(Scope* scope, Symbol* symbol) {
-    if (scope->symbol_count >= 16) {
-        fprintf(stderr, "too many symbols (max 16)\n");
-        exit(1);
-    }
-
-    scope->symbols[scope->symbol_count] = symbol;
-    scope->symbol_count++;
+    vector_push(&scope->symbols, &symbol);
 }
 
 Symbol* scope_lookup(const Scope* scope, const char* name) {
-    for (int i = 0; i < scope->symbol_count; i++) {
-        if (strcmp(scope->symbols[i]->name, name) == 0) {
-            return scope->symbols[i];
+    for (int i = 0; i < scope->symbols.length; i++) {
+        Symbol **sym_ptr = vector_get(&scope->symbols, i);
+        if (sym_ptr && *sym_ptr && strcmp((*sym_ptr)->name, name) == 0) {
+            return *sym_ptr;
         }
     }
 
@@ -96,10 +93,12 @@ static void analyze_expression(ExprNode* expr, Scope* scope) {
     switch (expr->kind) {
         case EXPR_NUMBER: {
             expr->type = TYPE_INT;
+            expr->pointer_level = 0;
             break;
         }
         case EXPR_STRING_LITERAL: {
             expr->type = TYPE_STRING;
+            expr->pointer_level = 0;
             break;
         }
         case EXPR_VAR: {
@@ -109,6 +108,7 @@ static void analyze_expression(ExprNode* expr, Scope* scope) {
             }
 
             expr->type = sym->type;
+            expr->pointer_level = sym->pointer_level;
             break;
         }
         case EXPR_UNARY: {
@@ -119,15 +119,29 @@ static void analyze_expression(ExprNode* expr, Scope* scope) {
                     report_error(expr->location, "Invalid type '%s' for '!' operator. Expected boolean or number.", type_to_str(expr->unary.operand->type));
                 }
 
+                expr->pointer_level = 0;
                 expr->type = TYPE_BOOLEAN;
-            }
-
-            else if (expr->unary.op == UNARY_NEG) {
+            } else if (expr->unary.op == UNARY_NEG) {
                 if (!is_numeric_type(expr->unary.operand->type)) {
                     report_error(expr->location, "Invalid type '%s' for unary '-' operator. Expected numeric type.", type_to_str(expr->unary.operand->type));
                 }
 
                 expr->type = expr->unary.operand->type;
+                expr->pointer_level = expr->unary.operand->pointer_level;
+            } else if (expr->unary.op == UNARY_DEREF) {
+                if (expr->unary.operand->pointer_level == 0) {
+                    report_error(expr->location, "Cannot dereference non-pointer type '%s'.", type_to_str(expr->unary.operand->type));
+                }
+
+                expr->type = expr->unary.operand->type;
+                expr->pointer_level = expr->unary.operand->pointer_level - 1;
+            } else if (expr->unary.op == UNARY_ADDR_OF) {
+                if (expr->unary.operand->kind != EXPR_VAR) {
+                    report_error(expr->location, "Cannot take address of non-lvalue");
+                }
+
+                expr->type = expr->unary.operand->type;
+                expr->pointer_level = expr->unary.operand->pointer_level + 1;
             }
 
             break;
@@ -149,6 +163,7 @@ static void analyze_expression(ExprNode* expr, Scope* scope) {
                 }
 
                 expr->type = lhs;
+                expr->pointer_level = 0;
                 break;
             }
 
@@ -158,19 +173,26 @@ static void analyze_expression(ExprNode* expr, Scope* scope) {
                 }
 
                 expr->type = TYPE_BOOLEAN;
+                expr->pointer_level = 0;
                 break;
             }
 
             if (is_assignment_op(expr->binop.op)) {
-                if (expr->binop.left->kind != EXPR_VAR) {
-                    report_error(expr->location, "Left-hand side of assignment must be a variable.");
+                if (expr->binop.left->kind != EXPR_VAR && !(expr->binop.left->kind == EXPR_UNARY && expr->binop.left->unary.op == UNARY_DEREF)) {
+                    report_error(expr->location, "Left-hand side of assignment must be a variable or dereferenced pointer.");
                 }
 
-                if (lhs != rhs) {
-                    report_error(expr->location, "Type mismatch in assignment. Cannot assign '%s' to variable of type '%s'.", type_to_str(rhs), type_to_str(lhs));
+                if (lhs != rhs || expr->binop.left->pointer_level != expr->binop.right->pointer_level) {
+                    report_error(expr->location, "Type mismatch in assignment. Cannot assign '%s%s' to '%s%s'.",
+                        type_to_str(rhs),
+                        expr->binop.right->pointer_level > 0 ? "*" : "",
+                        type_to_str(lhs),
+                        expr->binop.left->pointer_level > 0 ? "*" : ""
+                    );
                 }
 
                 expr->type = lhs;
+                expr->pointer_level = expr->binop.right->pointer_level;
                 break;
             }
 
@@ -181,6 +203,7 @@ static void analyze_expression(ExprNode* expr, Scope* scope) {
                 }
 
                 expr->type = TYPE_BOOLEAN;
+                expr->pointer_level = 0;
                 break;
             }
 
@@ -203,6 +226,7 @@ static void analyze_expression(ExprNode* expr, Scope* scope) {
             }
 
             expr->type = func_sym->type;
+            expr->pointer_level = 0;
             break;
         }
         default: {
@@ -252,6 +276,7 @@ static void analyze_statement(const StmtNode* stmt, Scope* scope) {
             sym->name = strdup(stmt->var_decl.name);
             sym->kind = SYM_VARIABLE;
             sym->type = stmt->var_decl.type;
+            sym->pointer_level = stmt->var_decl.pointer_level;
             sym->location = stmt->location;
 
             scope_add_symbol(scope, sym);
@@ -260,11 +285,13 @@ static void analyze_statement(const StmtNode* stmt, Scope* scope) {
             if (stmt->var_decl.initializer) {
                 analyze_expression(stmt->var_decl.initializer, scope);
 
-                if (stmt->var_decl.initializer->type != stmt->var_decl.type) {
-                    report_error(stmt->location, "Type mismatch in initialization of '%s'. Expected '%s', got '%s'.",
+                if (stmt->var_decl.initializer->type != stmt->var_decl.type || stmt->var_decl.initializer->pointer_level != stmt->var_decl.pointer_level) {
+                    report_error(stmt->location, "Type mismatch in initialization of '%s'. Expected '%s%s', got '%s%s'.",
                         stmt->var_decl.name,
                         type_to_str(stmt->var_decl.type),
-                        type_to_str(stmt->var_decl.initializer->type)
+                        stmt->var_decl.pointer_level > 0 ? "*" : "",
+                        type_to_str(stmt->var_decl.initializer->type),
+                        stmt->var_decl.initializer->pointer_level > 0 ? "*" : ""
                     );
                 }
             }

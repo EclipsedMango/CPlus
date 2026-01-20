@@ -29,9 +29,11 @@ typedef enum {
     TOK_PLUS,
     TOK_SUBTRACT,
 
-    TOK_MULTIPLY,
     TOK_DIVIDE,
     TOK_MODULO,
+
+    TOK_ASTERISK,
+    TOK_AMPERSAND,
 
     TOK_ASSIGN,
     TOK_EQUAL_EQUAL,
@@ -54,6 +56,9 @@ typedef enum {
 
     TOK_LBRACE,
     TOK_RBRACE,
+
+    TOK_ARROW,
+    TOK_DOT,
 
     TOK_SEMI,
     TOK_COMMA,

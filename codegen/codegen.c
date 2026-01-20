@@ -63,6 +63,15 @@ static LLVMTypeRef get_llvm_type(const TypeKind type) {
     }
 }
 
+static LLVMTypeRef get_llvm_type_with_pointers(const TypeKind kind, int pointer_level) {
+    LLVMTypeRef base_type = get_llvm_type(kind);
+    for (int i = 0; i < pointer_level; i++) {
+        base_type = LLVMPointerType(base_type, 0);
+    }
+
+    return base_type;
+}
+
 static LLVMValueRef codegen_expression(const ExprNode* expr) {
     if (!expr) {
         fprintf(stderr, "Error: null expression in codegen\n");
@@ -89,8 +98,9 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
                 fprintf(stderr, "Codegen error: undefined variable '%s'\n", expr->text);
                 exit(1);
             }
-            // Load with the correct type
-            LLVMTypeRef var_type = get_llvm_type(expr->type);
+
+            // Load with the correct type including pointer level
+            LLVMTypeRef var_type = get_llvm_type_with_pointers(expr->type, expr->pointer_level);
             return LLVMBuildLoad2(builder, var_type, var, "loadtmp");
         }
         case EXPR_BINOP: {
@@ -112,20 +122,25 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
                 case BIN_MUL: return LLVMBuildMul(builder, left, right, "multmp");
                 case BIN_DIV: return LLVMBuildSDiv(builder, left, right, "divtmp");
                 case BIN_ASSIGN: {
-                    if (expr->binop.left->kind != EXPR_VAR) {
-                        fprintf(stderr, "Left-hand side of assignment must be a variable\n");
-                        exit(1);
-                    }
-
-                    LLVMValueRef lhs_ptr = lookup_local_var(expr->binop.left->text);
-                    if (!lhs_ptr) {
-                        fprintf(stderr, "Assignment to undefined variable '%s'\n", expr->binop.left->text);
-                        exit(1);
-                    }
-
                     LLVMValueRef rhs_val = codegen_expression(expr->binop.right);
-                    LLVMBuildStore(builder, rhs_val, lhs_ptr);
+                    LLVMValueRef lhs_ptr;
 
+                    if (expr->binop.left->kind == EXPR_VAR) {
+                        lhs_ptr = lookup_local_var(expr->binop.left->text);
+                        if (!lhs_ptr) {
+                            fprintf(stderr, "Assignment to undefined variable '%s'\n", expr->binop.left->text);
+                            exit(1);
+                        }
+                    } else if (expr->binop.left->kind == EXPR_UNARY && expr->binop.left->unary.op == UNARY_DEREF) {
+                        // Dereferenced pointer assignment (*ptr = value)
+                        // Just get the pointer value (don't load from it)
+                        lhs_ptr = codegen_expression(expr->binop.left->unary.operand);
+                    } else {
+                        fprintf(stderr, "Invalid lvalue in assignment\n");
+                        exit(1);
+                    }
+
+                    LLVMBuildStore(builder, rhs_val, lhs_ptr);
                     return rhs_val;
                 }
                 case BIN_LESS: return LLVMBuildICmp(builder, LLVMIntSLT, left, right, "cmptmp");
@@ -153,7 +168,37 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
             }
         }
         case EXPR_UNARY: {
+            if (expr->unary.op == UNARY_DEREF) {
+                LLVMValueRef ptr;
+
+                if (expr->unary.operand->kind == EXPR_VAR) {
+                    // Load the pointer from the variable
+                    LLVMValueRef var = lookup_local_var(expr->unary.operand->text);
+                    if (!var) {
+                        fprintf(stderr, "Codegen error: undefined variable '%s'\n", expr->unary.operand->text);
+                        exit(1);
+                    }
+
+                    LLVMTypeRef ptr_type = get_llvm_type_with_pointers(expr->unary.operand->type, expr->unary.operand->pointer_level);
+                    ptr = LLVMBuildLoad2(builder, ptr_type, var, "loadptr");
+                } else {
+                    ptr = codegen_expression(expr->unary.operand);
+                }
+
+                LLVMTypeRef deref_type = get_llvm_type_with_pointers(expr->type, expr->pointer_level);
+                return LLVMBuildLoad2(builder, deref_type, ptr, "deref");
+            }
+
+            if (expr->unary.op == UNARY_ADDR_OF) {
+                if (expr->unary.operand->kind == EXPR_VAR) {
+                    // Return the pointer to the variable (don't load it)
+                    return lookup_local_var(expr->unary.operand->text);
+                }
+            }
+
+            // For other unary ops, evaluate the operand normally
             LLVMValueRef operand = codegen_expression(expr->unary.operand);
+
             if (expr->unary.op == UNARY_NOT) {
                 LLVMValueRef zero = LLVMConstNull(LLVMTypeOf(operand));
                 return LLVMBuildICmp(builder, LLVMIntEQ, operand, zero, "nottmp");
@@ -167,6 +212,7 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
 
                 return LLVMBuildNeg(builder, operand, "negtmp");
             }
+
             break;
         }
         case EXPR_CALL: {
@@ -271,7 +317,7 @@ static void codegen_statement(const StmtNode* stmt) {
         }
         case STMT_VAR_DECL: {
             // allocate space for variable
-            const LLVMTypeRef var_type = get_llvm_type(stmt->var_decl.type);
+            const LLVMTypeRef var_type = get_llvm_type_with_pointers(stmt->var_decl.type, stmt->var_decl.pointer_level);
             const LLVMValueRef alloca = LLVMBuildAlloca(builder, var_type, stmt->var_decl.name);
 
             // store initializer if present

@@ -12,12 +12,12 @@ typedef struct Symbol {
         SYM_PARAMETER
     } kind;
     TypeKind type;
+    int pointer_level;
     SourceLocation location;
 } Symbol;
 
 typedef struct Scope {
-    Symbol **symbols;
-    int symbol_count;
+    Vector symbols;
     struct Scope *parent; // NULL for global
 } Scope;
 

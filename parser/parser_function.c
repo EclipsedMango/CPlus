@@ -11,9 +11,10 @@ static TypeKind token_to_typekind(const TokenType token) {
         case TOK_FLOAT: return TYPE_FLOAT;
         case TOK_DOUBLE: return TYPE_DOUBLE;
         case TOK_STRING_KW: return TYPE_STRING;
-        default:
+        default: {
             fprintf(stderr, "invalid type token: %d\n", token);
             exit(1);
+        }
     }
 }
 
@@ -37,10 +38,21 @@ static void parse_parameter_list(ParamNode **params_out, int *count_out) {
         const TypeKind type = token_to_typekind(type_tok.type);
         advance();
 
+        int point_level = 0;
+        while (current_token().type == TOK_ASTERISK) {
+            point_level++;
+            advance();
+        }
+
         const Token name_tok = current_token();
         expect(TOK_IDENTIFIER);
 
-        ParamNode p = { .type = type, .name = strdup(name_tok.lexeme) };
+        ParamNode p = {
+            .type = type,
+            .pointer_level = point_level,
+            .name = strdup(name_tok.lexeme),
+            .location = type_tok.location
+        };
         vector_push(&params, &p);
 
         // check for more parameters

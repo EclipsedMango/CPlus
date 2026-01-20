@@ -90,6 +90,12 @@ StmtNode* parse_var_decl(void) {
     const TypeKind type = token_to_typekind(type_tok.type);
     advance();
 
+    int pointer_level = 0;
+    while (current_token().type == TOK_ASTERISK) {
+        pointer_level++;
+        advance();
+    }
+
     // read identifier
     const Token name_token = current_token();
     expect(TOK_IDENTIFIER);
@@ -108,6 +114,7 @@ StmtNode* parse_var_decl(void) {
     stmt->kind = STMT_VAR_DECL;
     stmt->location = loc;
     stmt->var_decl.type = type;
+    stmt->var_decl.pointer_level = pointer_level;
     stmt->var_decl.name = strdup(name_token.lexeme);
     stmt->var_decl.initializer = initializer;
 

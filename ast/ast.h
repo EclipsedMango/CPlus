@@ -42,7 +42,9 @@ typedef enum TypeKind {
 // needs to match lexer
 typedef enum UnaryOp {
     UNARY_NEG,
-    UNARY_NOT
+    UNARY_NOT,
+    UNARY_DEREF,
+    UNARY_ADDR_OF
 } UnaryOp;
 
 typedef struct ExprNode {
@@ -56,6 +58,7 @@ typedef struct ExprNode {
     } kind;
     SourceLocation location;
     TypeKind type;
+    int pointer_level;
     union {
         char *text;
         struct {
@@ -96,6 +99,7 @@ typedef struct StmtNode {
         } if_stmt;
         struct {
             TypeKind type;
+            int pointer_level;
             char *name;
             ExprNode *initializer;  // nullptr if no initializer
         } var_decl;
@@ -114,6 +118,7 @@ typedef struct StmtNode {
 
 typedef struct ParamNode {
     TypeKind type;
+    int pointer_level;
     SourceLocation location;
     char *name;
 } ParamNode;
