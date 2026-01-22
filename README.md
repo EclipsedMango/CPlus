@@ -2,7 +2,7 @@
 
 -----
 
-**C+** is my solution to C's and C++'s problems. C with quality of life without the bloat of C++
+**C+** is my solution to C's and C++'s problems.
 
 The syntax of **C+** is similar to C, but it includes features like: 
 - Built-in string type 
@@ -15,8 +15,16 @@ This project is a **work in progress!** Currently supported features:
 - Function declarations and calls
 - Variable declarations with initizlization
 - Basic arithmetic and comparison operations
-- If statments
+- If statements
+- while statements
+- for statements
+- continue statements
+- break statements
 - return statments
+- inline ASM using c like syntax and intel asm dialect
+- pointers and addresses
+- string, long, int, char, float, double, bool and void types
+- comments 
 
 -----
 ### Getting started
@@ -30,7 +38,7 @@ This project is a **work in progress!** Currently supported features:
 ### Creating your first C+ program
 #### Firstly create your C+ file!
 
-Create a file called main.cp in the C+ directory: (If you cloned this repo this will already be there!)
+Create a file called main.cp in the C+ directory: (If you cloned this repo this will already be there under the name test.cp!)
 ````
 int add(int a, int b) {
     return a + b;
@@ -44,11 +52,11 @@ int main() {
 ````
 #### Compiling and running
 
-- **Step 1:** Compile the C+ compiler and compile your C+ program
+- **Step 1:** Compile the C+ compiler
   - ````./compile.sh````
 
-- **Step 2:** Link and run your program
-  - ````gcc output.o -o program && ./program````
+- **Step 2:** Compile your program, link your program and then run your program
+  - ````./compiler examples/test.cp && gcc output.o -o program && ./program````
 
 - **Step 3:** Celebrate!
   - if done correctly everything should work! and now you have a **C+** program!
