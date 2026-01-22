@@ -1,4 +1,6 @@
 #include "codegen.h"
+
+#include <ctype.h>
 #include <llvm-c/Core.h>
 #include <llvm-c/Target.h>
 #include <llvm-c/TargetMachine.h>
@@ -548,83 +550,175 @@ static void codegen_statement(const StmtNode* stmt) {
             break;
         }
         case STMT_ASM: {
-            // Evaluate input expressions and potentially extend them
-            LLVMValueRef *inputs = malloc(sizeof(LLVMValueRef) * stmt->asm_stmt.input_count);
-            LLVMTypeRef *input_types = malloc(sizeof(LLVMTypeRef) * stmt->asm_stmt.input_count);
+            // Build output operands
+            LLVMValueRef *output_vals = NULL;
+            LLVMTypeRef *output_types = NULL;
+            if (stmt->asm_stmt.output_count > 0) {
+                output_vals = malloc(sizeof(LLVMValueRef) * stmt->asm_stmt.output_count);
+                output_types = malloc(sizeof(LLVMTypeRef) * stmt->asm_stmt.output_count);
 
-            Vector constraint_str = create_vector(128, sizeof(char));
-
-            for (int i = 0; i < stmt->asm_stmt.input_count; i++) {
-                LLVMValueRef val = codegen_expression(stmt->asm_stmt.inputs[i]);
-
-                // For pointers and 64-bit values, ensure they're i64
-                LLVMTypeRef val_type = LLVMTypeOf(val);
-                LLVMTypeKind kind = LLVMGetTypeKind(val_type);
-
-                if (kind == LLVMPointerTypeKind) {
-                    val = LLVMBuildPtrToInt(builder, val, LLVMInt64TypeInContext(context), "ptrtoint");
-                    input_types[i] = LLVMInt64TypeInContext(context);
-                } else if (kind == LLVMIntegerTypeKind) {
-                    unsigned width = LLVMGetIntTypeWidth(val_type);
-                    if (width < 64) {
-                        val = LLVMBuildZExt(builder, val, LLVMInt64TypeInContext(context), "ext64");
-                        input_types[i] = LLVMInt64TypeInContext(context);
+                for (size_t i = 0; i < stmt->asm_stmt.output_count; i++) {
+                    ExprNode *output_expr = stmt->asm_stmt.outputs[i];
+                    if (output_expr->kind == EXPR_VAR) {
+                        output_vals[i] = lookup_local_var(output_expr->text);
+                        CodegenSymbol *sym = lookup_local_var_full(output_expr->text);
+                        output_types[i] = get_llvm_type(sym->type);
                     } else {
-                        input_types[i] = val_type;
+                        fprintf(stderr, "Output operand must be a variable\n");
+                        exit(1);
                     }
+                }
+            }
+
+            // Build input operands
+            LLVMValueRef *input_vals = NULL;
+            if (stmt->asm_stmt.input_count > 0) {
+                input_vals = malloc(sizeof(LLVMValueRef) * stmt->asm_stmt.input_count);
+                for (size_t i = 0; i < stmt->asm_stmt.input_count; i++) {
+                    input_vals[i] = codegen_expression(stmt->asm_stmt.inputs[i]);
+
+                    // Zero-extend 32-bit integers to 64-bit for inline asm compatibility
+                    LLVMTypeRef input_type = LLVMTypeOf(input_vals[i]);
+                    if (LLVMGetTypeKind(input_type) == LLVMIntegerTypeKind &&
+                        LLVMGetIntTypeWidth(input_type) == 32) {
+                        input_vals[i] = LLVMBuildZExt(builder, input_vals[i], LLVMInt64Type(), "zext");
+                    }
+                }
+            }
+
+            // Convert assembly code from $ syntax to ${} syntax for LLVM Intel dialect
+            // $0, $1, etc. -> ${0}, ${1}, etc.
+            size_t asm_len = strlen(stmt->asm_stmt.assembly_code);
+            char *converted_asm = malloc(asm_len * 3 + 1); // worst case: each $ becomes ${N}
+            size_t write_pos = 0;
+
+            for (size_t i = 0; i < asm_len; i++) {
+                if (stmt->asm_stmt.assembly_code[i] == '$' &&
+                    i + 1 < asm_len &&
+                    isdigit(stmt->asm_stmt.assembly_code[i + 1])) {
+                    // Replace $N with ${N}
+                    converted_asm[write_pos++] = '$';
+                    converted_asm[write_pos++] = '{';
+                    // Copy all consecutive digits
+                    while (i + 1 < asm_len && isdigit(stmt->asm_stmt.assembly_code[i + 1])) {
+                        i++;
+                        converted_asm[write_pos++] = stmt->asm_stmt.assembly_code[i];
+                    }
+                    converted_asm[write_pos++] = '}';
                 } else {
-                    input_types[i] = val_type;
+                    converted_asm[write_pos++] = stmt->asm_stmt.assembly_code[i];
                 }
+            }
+            converted_asm[write_pos] = '\0';
 
-                inputs[i] = val;
+            // Build constraint string - calculate total size first
+            size_t total_len = 0;
+            for (size_t i = 0; i < stmt->asm_stmt.output_count; i++) {
+                total_len += strlen(stmt->asm_stmt.output_constraints[i]) + 1;
+            }
+            for (size_t i = 0; i < stmt->asm_stmt.input_count; i++) {
+                total_len += strlen(stmt->asm_stmt.input_constraints[i]) + 1;
+            }
+            for (size_t i = 0; i < stmt->asm_stmt.clobber_count; i++) {
+                total_len += strlen(stmt->asm_stmt.clobbers[i]) + 5;
+            }
 
-                // Build constraint string
-                const char *c = stmt->asm_stmt.constraints[i];
-                for (const char *p = c; *p; p++) {
-                    vector_push(&constraint_str, (void*)p);
-                }
-                if (i < stmt->asm_stmt.input_count - 1) {
-                    char comma = ',';
-                    vector_push(&constraint_str, &comma);
+            char *constraint_str = malloc(total_len + 1);
+            constraint_str[0] = '\0';
+
+            // Add output constraints
+            for (size_t i = 0; i < stmt->asm_stmt.output_count; i++) {
+                strcat(constraint_str, stmt->asm_stmt.output_constraints[i]);
+                if (i < stmt->asm_stmt.output_count - 1 || stmt->asm_stmt.input_count > 0 || stmt->asm_stmt.clobber_count > 0) {
+                    strcat(constraint_str, ",");
                 }
             }
 
-            // Add clobber list for syscall
-            // Format: "r,r,~{rax},~{rcx},~{r11},~{rdi},~{rsi},~{rdx},~{memory}"
-            const char *clobbers = ",~{rax},~{rcx},~{r11},~{rdi},~{rsi},~{rdx},~{memory}";
-            for (const char *p = clobbers; *p; p++) {
-                vector_push(&constraint_str, (void*)p);
+            // Add input constraints
+            for (size_t i = 0; i < stmt->asm_stmt.input_count; i++) {
+                strcat(constraint_str, stmt->asm_stmt.input_constraints[i]);
+                if (i < stmt->asm_stmt.input_count - 1 || stmt->asm_stmt.clobber_count > 0) {
+                    strcat(constraint_str, ",");
+                }
             }
 
-            char null_term = '\0';
-            vector_push(&constraint_str, &null_term);
+            // Add clobbers
+            for (size_t i = 0; i < stmt->asm_stmt.clobber_count; i++) {
+                strcat(constraint_str, "~{");
+                strcat(constraint_str, stmt->asm_stmt.clobbers[i]);
+                strcat(constraint_str, "}");
+                if (i < stmt->asm_stmt.clobber_count - 1) {
+                    strcat(constraint_str, ",");
+                }
+            }
 
-            // Create function type for inline asm
-            LLVMTypeRef void_type = LLVMVoidTypeInContext(context);
-            LLVMTypeRef asm_fn_type = LLVMFunctionType(
-                void_type,
-                input_types,
+            // Determine return type based on outputs
+            LLVMTypeRef return_type;
+            if (stmt->asm_stmt.output_count == 0) {
+                return_type = LLVMVoidType();
+            } else if (stmt->asm_stmt.output_count == 1) {
+                return_type = output_types[0];
+            } else {
+                return_type = LLVMStructType(output_types, stmt->asm_stmt.output_count, 0);
+            }
+
+            // Build function type
+            LLVMTypeRef *param_types = NULL;
+            if (stmt->asm_stmt.input_count > 0) {
+                param_types = malloc(sizeof(LLVMTypeRef) * stmt->asm_stmt.input_count);
+                for (size_t i = 0; i < stmt->asm_stmt.input_count; i++) {
+                    param_types[i] = LLVMTypeOf(input_vals[i]);
+                }
+            }
+
+            LLVMTypeRef asm_func_type = LLVMFunctionType(
+                return_type,
+                param_types,
                 stmt->asm_stmt.input_count,
                 0
             );
 
+            // Create inline assembly
             LLVMValueRef asm_val = LLVMGetInlineAsm(
-                asm_fn_type,
-                stmt->asm_stmt.assembly_code,
-                strlen(stmt->asm_stmt.assembly_code),
-                (char*)constraint_str.elements,
-                strlen((char*)constraint_str.elements),
-                1,  // hasSideEffects
-                0,  // isAlignStack
+                asm_func_type,
+                converted_asm,
+                strlen(converted_asm),
+                constraint_str,
+                strlen(constraint_str),
+                1, // hasSideEffects
+                0, // isAlignStack
                 LLVMInlineAsmDialectIntel,
-                0   // canThrow
+                0  // canThrow
             );
 
-            LLVMBuildCall2(builder, asm_fn_type, asm_val, inputs, stmt->asm_stmt.input_count, "");
+            // Call the inline assembly
+            LLVMValueRef result = LLVMBuildCall2(
+                builder,
+                asm_func_type,
+                asm_val,
+                input_vals,
+                stmt->asm_stmt.input_count,
+                ""
+            );
 
-            free(inputs);
-            free(input_types);
-            vector_destroy(&constraint_str);
+            // Store results to output variables
+            if (stmt->asm_stmt.output_count == 1) {
+                LLVMBuildStore(builder, result, output_vals[0]);
+            } else if (stmt->asm_stmt.output_count > 1) {
+                for (size_t i = 0; i < stmt->asm_stmt.output_count; i++) {
+                    LLVMValueRef extracted = LLVMBuildExtractValue(builder, result, i, "");
+                    LLVMBuildStore(builder, extracted, output_vals[i]);
+                }
+            }
+
+            // Cleanup
+            free(converted_asm);
+            free(constraint_str);
+            if (output_vals) free(output_vals);
+            if (output_types) free(output_types);
+            if (input_vals) free(input_vals);
+            if (param_types) free(param_types);
+
             break;
         }
         case STMT_VAR_DECL: {

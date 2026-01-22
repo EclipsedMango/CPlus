@@ -67,6 +67,8 @@ typedef enum {
     TOK_ARROW,
     TOK_DOT,
 
+    TOK_COLON,
+
     TOK_SEMI,
     TOK_COMMA,
 

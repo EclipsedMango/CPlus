@@ -50,6 +50,7 @@ static char *P_RPAREN = ")";
 static char *P_LBRACE = "{";
 static char *P_RBRACE = "}";
 static char *P_COMMA  = ",";
+static char *P_COLON  = ":";
 static char *P_SEMI   = ";";
 
 // identifiers & literals
@@ -217,6 +218,10 @@ static Token lex_string_literal(FILE *f) {
                 case 't':  ch = '\t'; break;
                 case '"':  ch = '"';  break;
                 case '\\': ch = '\\'; break;
+                case '\n':
+                    // line continuation: backslash followed by newline
+                    // skip the newline and continue parsing the string
+                    continue;
                 default: {
                     fprintf(stderr, "unknown escape: \\%c\n", c);
                     exit(1);
@@ -298,6 +303,7 @@ static Token lex_operator_or_punct(FILE *f, const int c) {
         case ')': return (Token){TOK_RPAREN, P_RPAREN, loc};
         case '{': return (Token){TOK_LBRACE, P_LBRACE, loc};
         case '}': return (Token){TOK_RBRACE, P_RBRACE, loc};
+        case ':': return (Token){TOK_COLON, P_COLON, loc};
         case ',': return (Token){TOK_COMMA, P_COMMA, loc};
         case ';': return (Token){TOK_SEMI, P_SEMI, loc};
 
@@ -364,6 +370,7 @@ const char* token_type_to_string(const TokenType type) {
         case TOK_RPAREN: return P_RPAREN;
         case TOK_LBRACE: return P_LBRACE;
         case TOK_RBRACE: return P_RBRACE;
+        case TOK_COLON: return P_COLON;
         case TOK_SEMI: return P_SEMI;
         case TOK_COMMA: return P_COMMA;
         case TOK_EOF: return END_OF_FILE;

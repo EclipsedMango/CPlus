@@ -11,7 +11,12 @@ int string_length(char* str) {
 
 void print(string msg) {
     int len = string_length(msg);
-    asm("mov rax, 1; mov rdi, 1; mov rsi, $0; mov rdx, $1; syscall", msg, len);
+    asm(
+        "mov rax, 1\n\t mov rdi, 1\n\t mov rsi, $0\n\t mov rdx, $1\n\t syscall"
+        :
+        : "r"(msg), "r"(len)
+        : "rax", "rdi", "rsi", "rdx"
+    );
 }
 
 void set_value(int* ptr, int val) {
@@ -22,7 +27,7 @@ void set_value(int* ptr, int val) {
 
 int main() {
     // Test!!!
-    print("Fuck you zane!\n");
+    print("Hello world!\n");
 
     int status = 0;
 

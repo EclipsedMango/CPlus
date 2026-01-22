@@ -1,6 +1,8 @@
 #ifndef C__AST_H
 #define C__AST_H
 
+#include <stddef.h>
+
 #include "../common.h"
 
 // needs to match lexer
@@ -127,9 +129,14 @@ typedef struct StmtNode {
         } compound;
         struct {
             char *assembly_code;
+            ExprNode **outputs;
+            size_t output_count;
+            char **output_constraints;
             ExprNode **inputs;
-            int input_count;
-            char **constraints;
+            size_t input_count;
+            char **input_constraints;
+            char **clobbers;
+            size_t clobber_count;
         } asm_stmt;
     };
 } StmtNode;

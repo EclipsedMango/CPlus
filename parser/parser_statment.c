@@ -150,17 +150,99 @@ StmtNode* parse_asm_stmt(void) {
     char *asm_code = strdup(current_token().lexeme);
     advance();
 
+    Vector outputs = create_vector(4, sizeof(ExprNode*));
+    Vector output_constraints = create_vector(4, sizeof(char*));
     Vector inputs = create_vector(4, sizeof(ExprNode*));
-    Vector constraints = create_vector(4, sizeof(char*));
+    Vector input_constraints = create_vector(4, sizeof(char*));
+    Vector clobbers = create_vector(4, sizeof(char*));
 
-    while (current_token().type == TOK_COMMA) {
+    // parse outputs (if colon present)
+    if (current_token().type == TOK_COLON) {
         advance();
-        ExprNode *input = parse_expression();
-        vector_push(&inputs, &input);
 
-        // use "r" constraint
-        char *constraint = strdup("r");
-        vector_push(&constraints, &constraint);
+        // check if this is immediately another colon (empty outputs)
+        if (current_token().type != TOK_COLON && current_token().type != TOK_RPAREN) {
+            // parse output operands
+            while (current_token().type != TOK_COLON && current_token().type != TOK_RPAREN && current_token().type != TOK_EOF) {
+
+                // expect string literal for constraint
+                if (current_token().type != TOK_STRING_LITERAL) {
+                    report_error(current_token().location, "Expected constraint string for output operand");
+                }
+                char *constraint = strdup(current_token().lexeme);
+                advance();
+
+                expect(TOK_LPAREN);
+
+                // expect output variable (must be lvalue)
+                ExprNode *output = parse_expression();
+                vector_push(&outputs, &output);
+                vector_push(&output_constraints, &constraint);
+
+                expect(TOK_RPAREN);
+
+                if (current_token().type == TOK_COMMA) {
+                    advance();
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+
+    // parse inputs (if second colon present)
+    if (current_token().type == TOK_COLON) {
+        advance();
+
+        // check if this is immediately another colon (empty inputs, going to clobbers)
+        if (current_token().type != TOK_COLON && current_token().type != TOK_RPAREN) {
+            // parse input operands
+            while (current_token().type != TOK_COLON && current_token().type != TOK_RPAREN && current_token().type != TOK_EOF) {
+
+                // expect string literal for constraint
+                if (current_token().type != TOK_STRING_LITERAL) {
+                    report_error(current_token().location, "Expected constraint string for input operand");
+                }
+                char *constraint = strdup(current_token().lexeme);
+                advance();
+
+                expect(TOK_LPAREN);
+
+                ExprNode *input = parse_expression();
+                vector_push(&inputs, &input);
+                vector_push(&input_constraints, &constraint);
+
+                expect(TOK_RPAREN);
+
+                if (current_token().type == TOK_COMMA) {
+                    advance();
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+
+    // parse clobbers (if third colon present)
+    if (current_token().type == TOK_COLON) {
+        advance();
+
+        // parse clobber list
+        while (current_token().type != TOK_RPAREN && current_token().type != TOK_EOF) {
+            if (current_token().type != TOK_STRING_LITERAL) {
+                report_error(current_token().location, "Expected clobber string");
+            }
+
+            char *clobber = strdup(current_token().lexeme);
+            vector_push(&clobbers, &clobber);
+            advance();
+
+            if (current_token().type == TOK_COMMA) {
+                advance();
+            } else {
+                break;
+            }
+        }
     }
 
     expect(TOK_RPAREN);
@@ -170,9 +252,14 @@ StmtNode* parse_asm_stmt(void) {
     stmt->kind = STMT_ASM;
     stmt->location = loc;
     stmt->asm_stmt.assembly_code = asm_code;
+    stmt->asm_stmt.outputs = outputs.elements;
+    stmt->asm_stmt.output_count = outputs.length;
+    stmt->asm_stmt.output_constraints = output_constraints.elements;
     stmt->asm_stmt.inputs = inputs.elements;
     stmt->asm_stmt.input_count = inputs.length;
-    stmt->asm_stmt.constraints = constraints.elements;
+    stmt->asm_stmt.input_constraints = input_constraints.elements;
+    stmt->asm_stmt.clobbers = clobbers.elements;
+    stmt->asm_stmt.clobber_count = clobbers.length;
 
     return stmt;
 }
