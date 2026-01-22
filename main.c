@@ -16,7 +16,7 @@ int main(const int argc, char *argv[]) {
 
     int useLLvm = 1;
     for (int i = 2; i < argc; ++i) {
-        char* token = argv[i];
+        const char* token = argv[i];
         
         if (strcmp(token, "--codegen") == 0) {
             if (i + 1 >= argc) {

@@ -44,7 +44,7 @@ void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
             string_count++;
             break;
         }
-        case EXPR_VAR:
+        case EXPR_VAR: {
             const int offset = map_get(variables, expr->text);
             if (offset == -1) {
                 fprintf(stderr, "Error: Variable not found");
@@ -54,6 +54,7 @@ void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
             fprintf(file, "    add r%d, %d\n", reg, offset);  // add the offset
             fprintf(file, "    mov r%d, @r%d\n", reg, reg);  // dereference to get value
             break;
+        }
         case EXPR_BINOP: {
             const BinaryOp op = expr->binop.op;
             if (op < BIN_ASSIGN || op > BIN_ASSIGN) {  // compare or maths
@@ -143,12 +144,26 @@ void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
                 fprintf(file, "    pop r5\n"
                               "    pop r4\n");
             } else {  // assignment
-                if (expr->binop.left->kind != EXPR_VAR) {
-                    fprintf(stderr, "Error: What? Assignment left of var assign isn't variable. It's: %d. Var is %s. Source line is %d.\n", expr->binop.left->kind, expr->binop.left->text, op);
-                    exit(1);
+                char* varName;
+                int dereferenceCount = 0;
+                const ExprNode* currentExpr = expr->binop.left;
+                while (1) {
+                    if (currentExpr->kind == EXPR_VAR) {
+                        varName = currentExpr->text;
+                        break;
+                    }
+                        
+                    if (currentExpr->kind != EXPR_UNARY || currentExpr->unary.op != UNARY_DEREF) {
+                        fprintf(stderr, "Error: Non variable assignment target must be deref binop.");
+                        exit(1);
+                    }
+                        
+                    // okay now we can recursively dereference
+                    dereferenceCount++;
+                    currentExpr = currentExpr->unary.operand;
                 }
                 
-                const int offset = map_get(variables, expr->binop.left->text);
+                const int offset = map_get(variables, varName);
                 if (offset == -1) {
                     fprintf(stderr, "Error: Variable not found");
                     exit(1);
@@ -157,12 +172,16 @@ void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
                 expr_in_reg(expr->binop.right, file, reg);  // place value into register
                 
                 // get value we're setting to (in r6)
-                fprintf(file, "    ; setting variable %s\n", expr->binop.left->text);
+                fprintf(file, "    ; setting variable %s\n", varName);
                 fprintf(file, "    push r6\n");  // preserve it
                 fprintf(file, "    mov r6, r%d\n", reg);  // place target value into r6 to save
                 
                 fprintf(file, "    mov r%d, r7\n", reg);  // our var is at r7+ the offset to it
                 fprintf(file, "    add r%d, %d\n", reg, offset);  // add the offset
+
+                for (int i = 0; i < dereferenceCount; ++i) {
+                    fprintf(file, "    mov r%d, @r%d\n", reg, reg);  // dereference to get pointer out of memory
+                }
                 fprintf(file, "    mov @r%d, r6\n", reg);  // place r6 val into variable
                 
                 fprintf(file, "    pop r6\n\n");  // put r6 back
@@ -174,12 +193,46 @@ void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
             }
             break;
         }
-        case EXPR_CALL:
+        case EXPR_CALL: {
             codegen_call(expr, file);  // returns in r0
             if (reg != 0) {
                 fprintf(file, "    mov r%d, r0\n", reg);
             }
             break;
+        }
+        case EXPR_UNARY: {
+            switch (expr->unary.op) {
+                case UNARY_NEG: {
+                    expr_in_reg(expr->unary.operand, file, reg);
+                    fprintf(file, "    not r%d\n", reg);
+                    fprintf(file, "    add r%d, 1\n", reg);
+                    break;
+                }
+                case UNARY_NOT: {
+                    expr_in_reg(expr->unary.operand, file, reg);
+                    fprintf(file, "    cmp r%d, 0\n", reg);
+                    fprintf(file, "    je .donenot%d\n", branch_num);
+                    fprintf(file, "    mov r%d, 1\n", reg);
+                    fprintf(file, ".donenot%d:\n", branch_num);
+                    branch_num++;
+                    break;
+                }
+                case UNARY_DEREF: {
+                    expr_in_reg(expr->unary.operand, file, reg);
+                    fprintf(file, "    mov r%d, @r%d\n", reg, reg);
+                    break;
+                }
+                case UNARY_ADDR_OF: {
+                    
+                    break;
+                }
+            }
+            break;
+        }
+        default: {
+            fprintf(stderr, "Error: invalid expression type: %d.", expr->kind);
+            exit(1);
+        }
     }
 }
 
@@ -212,16 +265,15 @@ void codegen_call(const ExprNode* expr, FILE* file) {
                   "    sub sp, 12\n");
 }
 
-void codegen_statement(const StmtNode* stmt, FILE* file) {
+void codegen_statement(const StmtNode* stmt, FILE* file, int loop) {
     switch (stmt->kind) {
         case STMT_RETURN: {
             if (!stmt->return_stmt.expr) {
-                fprintf(stderr, "Error: return statement has no expression\n");
-                exit(1);
+                fprintf(file, "    jmp .end\n");
+            } else {
+                expr_in_reg(stmt->return_stmt.expr, file, 0);  // move result into return register
+                fprintf(file, "    jmp .end\n");
             }
-
-            expr_in_reg(stmt->return_stmt.expr, file, 0);  // move result into return register
-            fprintf(file, "    jmp .end\n");
             break;
         }
         case STMT_VAR_DECL: {
@@ -246,7 +298,7 @@ void codegen_statement(const StmtNode* stmt, FILE* file) {
         }
         case STMT_COMPOUND: {
             for (int i = 0; i < stmt->compound.count; ++i) {
-                codegen_statement(stmt->compound.stmts[i], file);
+                codegen_statement(stmt->compound.stmts[i], file, loop);
             }
             break;
         }
@@ -257,19 +309,114 @@ void codegen_statement(const StmtNode* stmt, FILE* file) {
             fprintf(file, "    je .true\n");
             fprintf(file, "    ; false\n");
             if (stmt->if_stmt.else_stmt != NULL) {
-                codegen_statement(stmt->if_stmt.else_stmt, file);
+                codegen_statement(stmt->if_stmt.else_stmt, file, loop);
             }
             fprintf(file, "    jmp .done%d\n", branch);
             fprintf(file, ".true_%d:\n", branch);
-            codegen_statement(stmt->if_stmt.then_stmt, file);
+            codegen_statement(stmt->if_stmt.then_stmt, file, loop);
             fprintf(file, ".done_%d:\n", branch);
             break;
         }
         case STMT_ASM: {
             fprintf(file, "\n; BEGIN INLINE ASM\n");
+
+            fprintf(file, "push r6\n");
+            for (int i = 0; i < stmt->asm_stmt.clobber_count; ++i) {
+                fprintf(file, "push %s\n", stmt->asm_stmt.clobbers[i]);
+            }
+            
+            if (stmt->asm_stmt.input_count > 3) {
+                fprintf(stderr, "Error: currently only 3 inputs are allowed.\n");
+                exit(1);
+            }
+
+            for (int i = 0; i < stmt->asm_stmt.input_count; ++i) {
+                const int regNum = stmt->asm_stmt.input_constraints[i][1] - '0';
+                expr_in_reg(stmt->asm_stmt.inputs[i], file, regNum);
+            }
+            
+            fprintf(file, "\n");
             fwrite(stmt->asm_stmt.assembly_code, 1, strlen(stmt->asm_stmt.assembly_code), file);
+            fprintf(file, "\n");
+            
+            if (stmt->asm_stmt.output_count > 4) {
+                fprintf(stderr, "Error: currently only 4 outputs are allowed.\n");
+                exit(1);
+            }
+
+            for (int i = 0; i < stmt->asm_stmt.output_count; ++i) {
+                const ExprNode* output = stmt->asm_stmt.outputs[i];
+                if (output->kind != EXPR_VAR) {
+                    fprintf(stderr, "Error: michael is a liar, asm output is not variable.\n");
+                    exit(1);
+                }
+                
+                const int offset = map_get(variables, output->text);
+                if (offset == -1) {
+                    fprintf(stderr, "Error: Variable not found");
+                    exit(1);
+                }
+                fprintf(file, "; outputting %s\n", output->text);
+                fprintf(file, "mov r6, r7\n");  // our var is at r7+ the offset to it
+                fprintf(file, "add r6, %d\n", offset);  // add the offset
+                fprintf(file, "mov @r6, %s\n", stmt->asm_stmt.output_constraints[i]);  // dereference to get value
+            }
+            
+            for (int i = stmt->asm_stmt.clobber_count-1; i >= 0; i--) {
+                fprintf(file, "pop %s\n", stmt->asm_stmt.clobbers[i]);
+            }
+            
+            fprintf(file, "pop r6\n");
             fprintf(file, "\n; END INLINE ASM\n");
             break;
+        }
+        case STMT_WHILE: {
+            const int branch = branch_num++;
+            fprintf(file, ".loop%d:\n", branch);
+            expr_in_reg(stmt->while_stmt.condition, file, 1);
+            fprintf(file, "    cmp r1, 0\n");
+            fprintf(file, "    je .doneloop%d\n\n", branch);
+            codegen_statement(stmt->while_stmt.body, file, branch);
+            fprintf(file, ".continueloop%d:\n", branch);
+            fprintf(file, "\n    jmp .loop%d\n", branch);
+            fprintf(file, ".doneloop%d:\n", branch);
+            break;
+        }
+        case STMT_FOR: {
+            codegen_statement(stmt->for_stmt.init, file, -1);
+            const int branch = branch_num++;
+            fprintf(file, ".loop%d:\n", branch);
+            expr_in_reg(stmt->for_stmt.condition, file, 1);
+            fprintf(file, "    cmp r1, 0\n");
+            fprintf(file, "    je .doneloop%d\n\n", branch);
+            codegen_statement(stmt->for_stmt.body, file, branch);
+            fprintf(file, ".continueloop%d:\n", branch);
+            expr_in_reg(stmt->for_stmt.increment, file, 1);  // r1 i guess
+            fprintf(file, "\n    jmp .loop%d\n", branch);
+            fprintf(file, ".doneloop%d:\n", branch);
+            break;
+        }
+        case STMT_BREAK: {
+            if (loop == -1) {
+                fprintf(stderr, "Error: no loop to break from.\n");
+                exit(1);
+            }
+            
+            fprintf(file, "    jmp .doneloop%d\n", loop);
+            break;
+        }
+        case STMT_CONTINUE: {
+            if (loop == -1) {
+                fprintf(stderr, "Error: no loop to break from.\n");
+                exit(1);
+            }
+            
+            fprintf(file, "    jmp .continueloop%d\n", loop);
+            break;
+        }
+        default: {
+            fprintf(stderr, "Error: invalid statement type: %d.\n", stmt->kind);
+            exit(1);
         }
     }
 }
@@ -290,13 +437,13 @@ void codegen_function(const FunctionNode* function, FILE* file) {
         fprintf(file, "    push %s\n", arg_registers[i]);
         
         // record param
-        ParamNode param = function->params[i];
+        const ParamNode param = function->params[i];
         map_add(variables, param.name, current_r7_offset);
         current_r7_offset += 4;
     }
     fprintf(file, "\n");
 
-    codegen_statement(function->body, file);
+    codegen_statement(function->body, file, -1);
     fprintf(file, "%s", epilogue);
     
     current_r7_offset = oldr7off;
@@ -327,6 +474,21 @@ void codegen_program_cat(const ProgramNode* program, const char* output_file) {
     fprintf(output, "; Application Strings\n");
     for (int i = 0; i < string_count; i++) {
         fprintf(output, "str_%d:\n", i);
-        fprintf(output, "    dstr %s\\0\n", *strings[i]);
+        const char *str = *strings[i];
+        
+        // build data string hex array, (0x7B, 0x82, etc.)
+        const size_t strLen = strlen(*strings[i]);
+        char data[6*strLen-2];
+        data[0] = '\0';
+        for (size_t j = 0; j < strLen; ++j) {
+            char buf[8];
+            snprintf(buf, sizeof(buf), "0x%02X", (unsigned char)str[j]);
+            strcat(data, buf);
+            if (j < strLen - 1) {
+                strcat(data, ", ");
+            }
+        }
+        
+        fprintf(output, "    d8 %s\n", data);
     }
 }
