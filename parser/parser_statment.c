@@ -62,6 +62,81 @@ StmtNode* parse_if_stmt(void) {
     return stmt;
 }
 
+StmtNode* parse_while_stmt(void) {
+    const SourceLocation loc = current_token().location;
+    expect(TOK_WHILE);
+    expect(TOK_LPAREN);
+    ExprNode *cond = parse_expression();
+    expect(TOK_RPAREN);
+    StmtNode *body = parse_statement();
+
+    StmtNode *stmt = malloc(sizeof(StmtNode));
+    stmt->kind = STMT_WHILE;
+    stmt->location = loc;
+    stmt->while_stmt.condition = cond;
+    stmt->while_stmt.body = body;
+    return stmt;
+}
+
+StmtNode* parse_break_stmt(void) {
+    const SourceLocation loc = current_token().location;
+    expect(TOK_BREAK);
+    expect(TOK_SEMI);
+    StmtNode *stmt = malloc(sizeof(StmtNode));
+    stmt->kind = STMT_BREAK;
+    stmt->location = loc;
+    return stmt;
+}
+
+StmtNode* parse_continue_stmt(void) {
+    const SourceLocation loc = current_token().location;
+    expect(TOK_CONTINUE);
+    expect(TOK_SEMI);
+    StmtNode *stmt = malloc(sizeof(StmtNode));
+    stmt->kind = STMT_CONTINUE;
+    stmt->location = loc;
+    return stmt;
+}
+
+StmtNode* parse_for_stmt(void) {
+    const SourceLocation loc = current_token().location;
+    expect(TOK_FOR);
+    expect(TOK_LPAREN);
+
+    // init statement because it could be "int i=0;" or "i=0;" or ";"
+    StmtNode *init = NULL;
+    if (current_token().type == TOK_SEMI) {
+        advance(); // empty
+    } else {
+        init = parse_statement();
+    }
+
+    // condition
+    ExprNode *cond = NULL;
+    if (current_token().type != TOK_SEMI) {
+        cond = parse_expression();
+    }
+    expect(TOK_SEMI);
+
+    // increment
+    ExprNode *incr = NULL;
+    if (current_token().type != TOK_RPAREN) {
+        incr = parse_expression();
+    }
+    expect(TOK_RPAREN);
+
+    StmtNode *body = parse_statement();
+
+    StmtNode *stmt = malloc(sizeof(StmtNode));
+    stmt->kind = STMT_FOR;
+    stmt->location = loc;
+    stmt->for_stmt.init = init;
+    stmt->for_stmt.condition = cond;
+    stmt->for_stmt.increment = incr;
+    stmt->for_stmt.body = body;
+    return stmt;
+}
+
 StmtNode* parse_asm_stmt(void) {
     const SourceLocation loc = current_token().location;
     expect(TOK_ASM);
@@ -178,23 +253,16 @@ StmtNode* parse_compound_stmt(void) {
 StmtNode* parse_statement(void) {
     const Token t = current_token();
 
-    // return statement
-    if (t.type == TOK_RETURN) {
-        return parse_return_stmt();
-    }
-
-    // if statement
-    if (t.type == TOK_IF) {
-        return parse_if_stmt();
-    }
-
-    // asm statement
-    if (t.type == TOK_ASM) {
-        return parse_asm_stmt();
-    }
+    if (t.type == TOK_RETURN) return parse_return_stmt();
+    if (t.type == TOK_IF) return parse_if_stmt();
+    if (t.type == TOK_WHILE) return parse_while_stmt();
+    if (t.type == TOK_FOR) return parse_for_stmt();
+    if (t.type == TOK_BREAK) return parse_break_stmt();
+    if (t.type == TOK_CONTINUE) return parse_continue_stmt();
+    if (t.type == TOK_ASM) return parse_asm_stmt();
 
     // variable declaration (starts with type)
-    if (t.type == TOK_INT || t.type == TOK_LONG || t.type == TOK_FLOAT || t.type == TOK_DOUBLE || t.type == TOK_STRING_KW || t.type == TOK_BOOL) {
+    if (t.type == TOK_INT || t.type == TOK_LONG || t.type == TOK_CHAR || t.type == TOK_FLOAT || t.type == TOK_DOUBLE || t.type == TOK_STRING_KW || t.type == TOK_BOOL || t.type == TOK_VOID) {
         return parse_var_decl();
     }
 

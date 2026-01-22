@@ -83,6 +83,10 @@ typedef struct StmtNode {
     enum {
         STMT_RETURN,
         STMT_IF,
+        STMT_WHILE,
+        STMT_FOR,
+        STMT_BREAK,
+        STMT_CONTINUE,
         STMT_VAR_DECL,
         STMT_EXPR,
         STMT_COMPOUND,
@@ -98,6 +102,16 @@ typedef struct StmtNode {
             struct StmtNode *then_stmt;
             struct StmtNode *else_stmt;
         } if_stmt;
+        struct {
+            ExprNode *condition;
+            struct StmtNode *body;
+        } while_stmt;
+        struct {
+            struct StmtNode *init; // can be VarDecl or ExprStmt
+            ExprNode *condition;   // can be NULL
+            ExprNode *increment;   // can be NULL
+            struct StmtNode *body;
+        } for_stmt;
         struct {
             TypeKind type;
             int pointer_level;

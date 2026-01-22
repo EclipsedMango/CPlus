@@ -1,6 +1,7 @@
-void hello() {
-    int a = 10;
+void set_value(int* ptr, int val) {
+    *ptr = val;
     return;
+    *ptr = 0;
 }
 
 int main() {
@@ -118,6 +119,78 @@ int main() {
     if (result != 11) {
         status = 15;
     }
+
+    int v_test = 0;
+    set_value(&v_test, 999);
+    if (v_test != 999) {
+        status = 16;
+    }
+
+    char c = 65;
+    if (c != 65) {
+        status = 17;
+    }
+
+    char* str = "hello";
+    if (*str != 104) {
+        status = 18;
+    }
+
+    char* str2 = str;
+    if (*str2 != *str) {
+        status = 19;
+    }
+
+    int w_counter = 0;
+    while (w_counter < 10) {
+        w_counter = w_counter + 1;
+    }
+    if (w_counter != 10) {
+        status = 20;
+    }
+
+    int f_sum = 0;
+    for (int i = 0; i < 5; i = i + 1) {
+        f_sum = f_sum + i;
+    }
+
+    if (f_sum != 10) {
+        status = 21;
+    }
+
+    int b_counter = 0;
+    while (1) {
+        if (b_counter == 5) {
+            break;
+        }
+        b_counter = b_counter + 1;
+    }
+    if (b_counter != 5) {
+        status = 22;
+    }
+
+    int c_sum = 0;
+    for (int k = 0; k < 10; k = k + 1) {
+        if (k == 5) {
+            continue;
+        }
+        c_sum = c_sum + 1;
+    }
+
+    if (c_sum != 9) {
+        status = 23;
+    }
+
+    int outer_count = 0;
+    int inner_count = 0;
+    for (int i = 0; i < 3; i = i + 1) {
+        outer_count = outer_count + 1;
+        for (int j = 0; j < 2; j = j + 1) {
+            inner_count = inner_count + 1;
+        }
+    }
+    if (outer_count != 3) { status = 24; }
+    if (inner_count != 6) { status = 25; }
 
     return status;
 }

@@ -39,6 +39,24 @@ static int is_numeric_type(const TypeKind t) {
     return t == TYPE_INT || t == TYPE_LONG || t == TYPE_FLOAT || t == TYPE_DOUBLE || t == TYPE_CHAR;
 }
 
+static int types_compatible(const TypeKind target, const TypeKind source) {
+    if (target == source) return 1;
+
+    // numeric types are compatible with each other (e.g., int to float)
+    if (is_numeric_type(target) && is_numeric_type(source)) return 1;
+    return 0;
+}
+
+static int types_compatible_with_pointers(const TypeKind target_type, const int target_ptr_level, const TypeKind source_type, const int source_ptr_level) {
+    // string type is compatible with char*
+    if (target_type == TYPE_STRING && source_type == TYPE_CHAR && source_ptr_level == 1) return 1;
+    if (target_type == TYPE_CHAR && target_ptr_level == 1 && source_type == TYPE_STRING) return 1;
+
+    // otherwise, pointer levels must match and types must be compatible
+    if (target_ptr_level != source_ptr_level) return 0;
+    return types_compatible(target_type, source_type);
+}
+
 Scope* scope_create(Scope* parent) {
     Scope* new_scope = malloc(sizeof(Scope));
     new_scope->parent = parent;
@@ -159,7 +177,7 @@ static void analyze_expression(ExprNode* expr, Scope* scope) {
                     report_error(expr->location, "Arithmetic operator requires numeric types. Got '%s' and '%s'.", type_to_str(lhs), type_to_str(rhs));
                 }
 
-                if (lhs != rhs) {
+                if (!types_compatible(lhs, rhs)) {
                     report_error(expr->location, "Type mismatch in arithmetic expression: '%s' vs '%s'", type_to_str(lhs), type_to_str(rhs));
                 }
 
@@ -169,7 +187,7 @@ static void analyze_expression(ExprNode* expr, Scope* scope) {
             }
 
             if (is_comparison_op(expr->binop.op)) {
-                if (lhs != rhs) {
+                if (!types_compatible(lhs, rhs)) {
                     report_error(expr->location, "Type mismatch in comparison: '%s' vs '%s'", type_to_str(lhs), type_to_str(rhs));
                 }
 
@@ -183,7 +201,7 @@ static void analyze_expression(ExprNode* expr, Scope* scope) {
                     report_error(expr->location, "Left-hand side of assignment must be a variable or dereferenced pointer.");
                 }
 
-                if (lhs != rhs || expr->binop.left->pointer_level != expr->binop.right->pointer_level) {
+                if (!types_compatible_with_pointers(lhs, expr->binop.left->pointer_level, rhs, expr->binop.right->pointer_level)) {
                     report_error(expr->location, "Type mismatch in assignment. Cannot assign '%s%s' to '%s%s'.",
                         type_to_str(rhs),
                         expr->binop.right->pointer_level > 0 ? "*" : "",
@@ -237,7 +255,7 @@ static void analyze_expression(ExprNode* expr, Scope* scope) {
     }
 }
 
-static bool analyze_statement(const StmtNode* stmt, Scope* scope, const TypeKind expected_ret_type) {
+static bool analyze_statement(const StmtNode* stmt, Scope* scope, const TypeKind expected_ret_type, bool in_loop) {
     switch (stmt->kind) {
         case STMT_RETURN: {
             if (stmt->return_stmt.expr) {
@@ -247,7 +265,7 @@ static bool analyze_statement(const StmtNode* stmt, Scope* scope, const TypeKind
 
                 analyze_expression(stmt->return_stmt.expr, scope);
 
-                bool types_match = (stmt->return_stmt.expr->type == expected_ret_type);
+                bool types_match = types_compatible(expected_ret_type, stmt->return_stmt.expr->type);
 
                 if (stmt->return_stmt.expr->pointer_level != 0 && expected_ret_type == TYPE_VOID) {
                     types_match = false;
@@ -270,21 +288,60 @@ static bool analyze_statement(const StmtNode* stmt, Scope* scope, const TypeKind
         case STMT_IF: {
             analyze_expression(stmt->if_stmt.condition, scope);
 
-            if (stmt->if_stmt.condition->type != TYPE_BOOLEAN) {
-                report_error(stmt->location, "If condition must be boolean. Got '%s'.", type_to_str(stmt->if_stmt.condition->type));
+            if (stmt->if_stmt.condition->type != TYPE_BOOLEAN && !is_numeric_type(stmt->if_stmt.condition->type)) {
+                report_error(stmt->location, "If condition must be boolean or numeric. Got '%s'.", type_to_str(stmt->if_stmt.condition->type));
             }
 
             bool then_returns = false;
             if (stmt->if_stmt.then_stmt) {
-                then_returns = analyze_statement(stmt->if_stmt.then_stmt, scope, expected_ret_type);
+                then_returns = analyze_statement(stmt->if_stmt.then_stmt, scope, expected_ret_type, in_loop);
             }
 
             bool else_returns = false;
             if (stmt->if_stmt.else_stmt) {
-                else_returns = analyze_statement(stmt->if_stmt.else_stmt, scope, expected_ret_type);
+                else_returns = analyze_statement(stmt->if_stmt.else_stmt, scope, expected_ret_type, in_loop);
             }
 
             return then_returns && else_returns;
+        }
+        case STMT_WHILE: {
+            analyze_expression(stmt->while_stmt.condition, scope);
+            if (stmt->while_stmt.condition->type != TYPE_BOOLEAN && !is_numeric_type(stmt->while_stmt.condition->type)) {
+                report_error(stmt->location, "While condition must be boolean or numeric.");
+            }
+
+            analyze_statement(stmt->while_stmt.body, scope, expected_ret_type, true);
+            return false;
+        }
+        case STMT_FOR: {
+            Scope *loop_scope = scope_create(scope);
+
+            if (stmt->for_stmt.init) {
+                analyze_statement(stmt->for_stmt.init, loop_scope, expected_ret_type, false);
+            }
+
+            if (stmt->for_stmt.condition) {
+                analyze_expression(stmt->for_stmt.condition, loop_scope);
+                if (stmt->for_stmt.condition->type != TYPE_BOOLEAN && !is_numeric_type(stmt->for_stmt.condition->type)) {
+                    report_error(stmt->location, "For condition must be boolean or numeric.");
+                }
+            }
+
+            if (stmt->for_stmt.increment) {
+                analyze_expression(stmt->for_stmt.increment, loop_scope);
+            }
+
+            analyze_statement(stmt->for_stmt.body, loop_scope, expected_ret_type, true);
+
+            scope_destroy(loop_scope);
+            return false;
+        }
+        case STMT_BREAK:
+        case STMT_CONTINUE: {
+            if (!in_loop) {
+                report_error(stmt->location, "Statement can only be used inside a loop.");
+            }
+            return false;
         }
         case STMT_ASM: {
             for (int i = 0; i < stmt->asm_stmt.input_count; i++) {
@@ -318,7 +375,8 @@ static bool analyze_statement(const StmtNode* stmt, Scope* scope, const TypeKind
             if (stmt->var_decl.initializer) {
                 analyze_expression(stmt->var_decl.initializer, scope);
 
-                if (stmt->var_decl.initializer->type != stmt->var_decl.type || stmt->var_decl.initializer->pointer_level != stmt->var_decl.pointer_level) {
+                if (!types_compatible_with_pointers(stmt->var_decl.type, stmt->var_decl.pointer_level,
+                                                    stmt->var_decl.initializer->type, stmt->var_decl.initializer->pointer_level)) {
                     report_error(stmt->location, "Type mismatch in initialization of '%s'. Expected '%s%s', got '%s%s'.",
                         stmt->var_decl.name,
                         type_to_str(stmt->var_decl.type),
@@ -341,7 +399,7 @@ static bool analyze_statement(const StmtNode* stmt, Scope* scope, const TypeKind
 
             for (int i = 0; i < stmt->compound.count; i++) {
                 // if one returns, the block returns.
-                if (analyze_statement(stmt->compound.stmts[i], block_scope, expected_ret_type)) {
+                if (analyze_statement(stmt->compound.stmts[i], block_scope, expected_ret_type, in_loop)) {
                     does_return = true;
                 }
             }
@@ -371,12 +429,13 @@ static void analyze_function(const FunctionNode *func, Scope *global) {
         sym->name = strdup(param->name);
         sym->kind = SYM_PARAMETER;
         sym->type = param->type;
+        sym->pointer_level = param->pointer_level;
         sym->location = param->location;
 
         scope_add_symbol(func_scope, sym);
     }
 
-    const bool returns_value = analyze_statement(func->body, func_scope, func->return_type);
+    const bool returns_value = analyze_statement(func->body, func_scope, func->return_type, false);
     if (func->return_type != TYPE_VOID && !returns_value) {
         report_error(func->location, "Function '%s' is declared to return '%s' but not all control paths return a value.", func->name, type_to_str(func->return_type));
     }

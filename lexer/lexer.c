@@ -9,18 +9,22 @@ static int current_column = 1;
 static const char *current_filename = NULL;
 
 // keywords
-static char *KW_INT    = "int";
-static char *KW_LONG   = "long";
-static char *KW_CHAR   = "char";
-static char *KW_FLOAT  = "float";
-static char *KW_DOUBLE = "double";
-static char *KW_STRING = "string";
-static char *KW_BOOL = "bool";
-static char *KW_VOID = "void";
-static char *KW_RETURN = "return";
-static char *KW_IF     = "if";
-static char *KW_ELSE = "else";
-static char *KW_ASM = "asm";
+static char *KW_INT      = "int";
+static char *KW_LONG     = "long";
+static char *KW_CHAR     = "char";
+static char *KW_FLOAT    = "float";
+static char *KW_DOUBLE   = "double";
+static char *KW_STRING   = "string";
+static char *KW_BOOL     = "bool";
+static char *KW_VOID     = "void";
+static char *KW_RETURN   = "return";
+static char *KW_IF       = "if";
+static char *KW_ELSE     = "else";
+static char *KW_WHILE    = "while";
+static char *KW_FOR      = "for";
+static char *KW_BREAK    = "break";
+static char *KW_CONTINUE = "continue";
+static char *KW_ASM      = "asm";
 
 // operators
 static char *OP_ASSIGN          = "=";
@@ -49,14 +53,14 @@ static char *P_COMMA  = ",";
 static char *P_SEMI   = ";";
 
 // identifiers & literals
-static char *IDENTIFIER = "identifier";
+static char *IDENTIFIER     = "identifier";
 static char *STRING_LITERAL = "string literal";
-static char *NUMBER = "number";
-static char *DECI_NUMBER = "decimal number";
+static char *NUMBER         = "number";
+static char *DECI_NUMBER    = "decimal number";
 
 // special
 static char *END_OF_FILE = "end of file";
-static char *UNKNOWN = "unknown token";
+static char *UNKNOWN     = "unknown token";
 
 void lexer_init(const char *filename) {
     current_line = 1;
@@ -118,18 +122,22 @@ static Token lex_identifier_or_keyword(FILE *f, const int first) {
     const SourceLocation loc = make_location();
 
     Token tok = (Token){ .type = TOK_IDENTIFIER, .lexeme = strdup(lexeme), .location = loc };
-    if (strcmp(lexeme, KW_INT) == 0)    tok = (Token){ .type = TOK_INT, .lexeme = KW_INT, .location = loc };
-    if (strcmp(lexeme, KW_LONG) == 0)   tok = (Token){ .type = TOK_LONG, .lexeme = KW_LONG, .location = loc };
-    if (strcmp(lexeme, KW_CHAR) == 0)   tok = (Token){ .type = TOK_CHAR, .lexeme = KW_CHAR, .location = loc };
-    if (strcmp(lexeme, KW_FLOAT) == 0)  tok = (Token){ .type = TOK_FLOAT, .lexeme = KW_FLOAT, .location = loc };
-    if (strcmp(lexeme, KW_DOUBLE) == 0) tok = (Token){ .type = TOK_DOUBLE, .lexeme = KW_DOUBLE, .location = loc };
-    if (strcmp(lexeme, KW_STRING) == 0) tok = (Token){ .type = TOK_STRING_KW, .lexeme = KW_STRING, .location = loc };
-    if (strcmp(lexeme, KW_BOOL) == 0)   tok = (Token){ .type = TOK_BOOL, .lexeme = KW_BOOL, .location = loc };
-    if (strcmp(lexeme, KW_VOID) == 0)   tok = (Token){ .type = TOK_VOID, .lexeme = KW_VOID, .location = loc };
-    if (strcmp(lexeme, KW_RETURN) == 0) tok = (Token){ .type = TOK_RETURN, .lexeme = KW_RETURN, .location = loc };
-    if (strcmp(lexeme, KW_IF) == 0)     tok = (Token){ .type = TOK_IF, .lexeme = KW_IF, .location = loc };
-    if (strcmp(lexeme, KW_ELSE) == 0)   tok = (Token){ .type = TOK_ELSE, .lexeme = KW_ELSE, .location = loc };
-    if (strcmp(lexeme, KW_ASM) == 0)    tok = (Token){ .type = TOK_ASM, .lexeme = KW_ASM, .location = loc };
+    if (strcmp(lexeme, KW_INT) == 0)      tok = (Token){ .type = TOK_INT, .lexeme = KW_INT, .location = loc };
+    if (strcmp(lexeme, KW_LONG) == 0)     tok = (Token){ .type = TOK_LONG, .lexeme = KW_LONG, .location = loc };
+    if (strcmp(lexeme, KW_CHAR) == 0)     tok = (Token){ .type = TOK_CHAR, .lexeme = KW_CHAR, .location = loc };
+    if (strcmp(lexeme, KW_FLOAT) == 0)    tok = (Token){ .type = TOK_FLOAT, .lexeme = KW_FLOAT, .location = loc };
+    if (strcmp(lexeme, KW_DOUBLE) == 0)   tok = (Token){ .type = TOK_DOUBLE, .lexeme = KW_DOUBLE, .location = loc };
+    if (strcmp(lexeme, KW_STRING) == 0)   tok = (Token){ .type = TOK_STRING_KW, .lexeme = KW_STRING, .location = loc };
+    if (strcmp(lexeme, KW_BOOL) == 0)     tok = (Token){ .type = TOK_BOOL, .lexeme = KW_BOOL, .location = loc };
+    if (strcmp(lexeme, KW_VOID) == 0)     tok = (Token){ .type = TOK_VOID, .lexeme = KW_VOID, .location = loc };
+    if (strcmp(lexeme, KW_RETURN) == 0)   tok = (Token){ .type = TOK_RETURN, .lexeme = KW_RETURN, .location = loc };
+    if (strcmp(lexeme, KW_IF) == 0)       tok = (Token){ .type = TOK_IF, .lexeme = KW_IF, .location = loc };
+    if (strcmp(lexeme, KW_ELSE) == 0)     tok = (Token){ .type = TOK_ELSE, .lexeme = KW_ELSE, .location = loc };
+    if (strcmp(lexeme, KW_WHILE) == 0)    tok = (Token){ .type = TOK_WHILE, .lexeme = KW_WHILE, .location = loc };
+    if (strcmp(lexeme, KW_FOR) == 0)      tok = (Token){ .type = TOK_FOR, .lexeme = KW_FOR, .location = loc };
+    if (strcmp(lexeme, KW_BREAK) == 0)    tok = (Token){ .type = TOK_BREAK, .lexeme = KW_BREAK, .location = loc };
+    if (strcmp(lexeme, KW_CONTINUE) == 0) tok = (Token){ .type = TOK_CONTINUE, .lexeme = KW_CONTINUE, .location = loc };
+    if (strcmp(lexeme, KW_ASM) == 0)      tok = (Token){ .type = TOK_ASM, .lexeme = KW_ASM, .location = loc };
 
     vector_destroy(&buffer);
     return tok;
@@ -306,6 +314,10 @@ const char* token_type_to_string(const TokenType type) {
         case TOK_RETURN: return KW_RETURN;
         case TOK_IF: return KW_IF;
         case TOK_ELSE: return KW_ELSE;
+        case TOK_WHILE: return KW_WHILE;
+        case TOK_FOR: return KW_FOR;
+        case TOK_BREAK: return KW_BREAK;
+        case TOK_CONTINUE: return KW_CONTINUE;
         case TOK_ASM: return KW_ASM;
         case TOK_IDENTIFIER: return IDENTIFIER;
         case TOK_STRING_LITERAL: return STRING_LITERAL;

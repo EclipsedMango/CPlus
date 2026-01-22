@@ -9,14 +9,19 @@
 
 typedef struct {
     char *name;
-    LLVMValueRef value;  // LLVM value (parameter or alloca)
+    LLVMValueRef value;
+    TypeKind type;
+    int pointer_level;
 } CodegenSymbol;
 
 static CodegenSymbol *local_vars = NULL;
 static int local_var_count = 0;
 static int local_var_capacity = 0;
 
-static void add_local_var(const char *name, const LLVMValueRef value) {
+static LLVMBasicBlockRef current_break_target = NULL;
+static LLVMBasicBlockRef current_continue_target = NULL;
+
+static void add_local_var(const char *name, const LLVMValueRef value, const TypeKind type, const int pointer_level) {
     if (local_var_count >= local_var_capacity) {
         local_var_capacity = local_var_capacity == 0 ? 16 : local_var_capacity * 2;
         local_vars = realloc(local_vars, sizeof(CodegenSymbol) * local_var_capacity);
@@ -24,16 +29,24 @@ static void add_local_var(const char *name, const LLVMValueRef value) {
 
     local_vars[local_var_count].name = strdup(name);
     local_vars[local_var_count].value = value;
+    local_vars[local_var_count].type = type;
+    local_vars[local_var_count].pointer_level = pointer_level;
     local_var_count++;
 }
 
-static LLVMValueRef lookup_local_var(const char *name) {
-    for (int i = 0; i < local_var_count; i++) {
+static CodegenSymbol* lookup_local_var_full(const char *name) {
+    // Search from the end to find most recently declared variable
+    for (int i = local_var_count - 1; i >= 0; i--) {
         if (strcmp(local_vars[i].name, name) == 0) {
-            return local_vars[i].value;
+            return &local_vars[i];
         }
     }
     return NULL;
+}
+
+static LLVMValueRef lookup_local_var(const char *name) {
+    CodegenSymbol *sym = lookup_local_var_full(name);
+    return sym ? sym->value : NULL;
 }
 
 static void clear_local_vars(void) {
@@ -71,6 +84,29 @@ static LLVMTypeRef get_llvm_type_with_pointers(const TypeKind kind, int pointer_
     }
 
     return base_type;
+}
+
+static LLVMValueRef convert_to_type(LLVMValueRef value, TypeKind from_type, TypeKind to_type) {
+    if (from_type == to_type) return value;
+
+    LLVMTypeRef from_llvm = get_llvm_type(from_type);
+    LLVMTypeRef to_llvm = get_llvm_type(to_type);
+
+    // Both are integers of different sizes
+    if ((from_type == TYPE_INT || from_type == TYPE_LONG || from_type == TYPE_CHAR) &&
+        (to_type == TYPE_INT || to_type == TYPE_LONG || to_type == TYPE_CHAR)) {
+
+        unsigned from_bits = LLVMGetIntTypeWidth(from_llvm);
+        unsigned to_bits = LLVMGetIntTypeWidth(to_llvm);
+
+        if (from_bits < to_bits) {
+            return LLVMBuildSExt(builder, value, to_llvm, "sext");
+        } else if (from_bits > to_bits) {
+            return LLVMBuildTrunc(builder, value, to_llvm, "trunc");
+        }
+    }
+
+    return value;
 }
 
 static LLVMValueRef codegen_expression(const ExprNode* expr) {
@@ -114,8 +150,24 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
                 exit(1);
             }
 
-            const LLVMValueRef left = codegen_expression(expr->binop.left);
-            const LLVMValueRef right = codegen_expression(expr->binop.right);
+            LLVMValueRef left = codegen_expression(expr->binop.left);
+            LLVMValueRef right = codegen_expression(expr->binop.right);
+
+            if (expr->binop.op == BIN_EQUAL || expr->binop.op == BIN_NOT_EQUAL ||
+                expr->binop.op == BIN_LESS || expr->binop.op == BIN_GREATER ||
+                expr->binop.op == BIN_LESS_EQ || expr->binop.op == BIN_GREATER_EQ) {
+
+                TypeKind left_type = expr->binop.left->type;
+                TypeKind right_type = expr->binop.right->type;
+
+                if (left_type != right_type) {
+                    if (left_type == TYPE_CHAR && right_type == TYPE_INT) {
+                        left = convert_to_type(left, TYPE_CHAR, TYPE_INT);
+                    } else if (left_type == TYPE_INT && right_type == TYPE_CHAR) {
+                        right = convert_to_type(right, TYPE_CHAR, TYPE_INT);
+                    }
+                }
+            }
 
             switch (expr->binop.op) {
                 case BIN_ADD: return LLVMBuildAdd(builder, left, right, "addtmp");
@@ -223,14 +275,18 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
                 exit(1);
             }
 
-            // make arguments
             LLVMValueRef *args = malloc(sizeof(LLVMValueRef) * expr->call.arg_count);
             for (int i = 0; i < expr->call.arg_count; i++) {
                 args[i] = codegen_expression(expr->call.args[i]);
             }
 
             const LLVMTypeRef func_type = LLVMGlobalGetValueType(func);
-            const LLVMValueRef result = LLVMBuildCall2(builder, func_type, func, args, expr->call.arg_count, "calltmp");
+
+            // Check if function returns void
+            LLVMTypeRef ret_type = LLVMGetReturnType(func_type);
+            const char *call_name = (LLVMGetTypeKind(ret_type) == LLVMVoidTypeKind) ? "" : "calltmp";
+
+            const LLVMValueRef result = LLVMBuildCall2(builder, func_type, func, args, expr->call.arg_count, call_name);
 
             free(args);
             return result;
@@ -294,6 +350,171 @@ static void codegen_statement(const StmtNode* stmt) {
 
             // continue after if
             LLVMPositionBuilderAtEnd(builder, merge_block);
+            break;
+        }
+        case STMT_WHILE: {
+            LLVMValueRef func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(builder));
+
+            LLVMBasicBlockRef cond_block = LLVMAppendBasicBlockInContext(context, func, "while_cond");
+            LLVMBasicBlockRef body_block = LLVMAppendBasicBlockInContext(context, func, "while_body");
+            LLVMBasicBlockRef end_block  = LLVMAppendBasicBlockInContext(context, func, "while_end");
+
+            // jump to condition
+            LLVMBuildBr(builder, cond_block);
+
+            // Condition Block
+            LLVMPositionBuilderAtEnd(builder, cond_block);
+            LLVMValueRef cond_val = codegen_expression(stmt->while_stmt.condition);
+            // Ensure i1
+            cond_val = LLVMBuildTrunc(builder, cond_val, LLVMInt1TypeInContext(context), "booltmp");
+            LLVMBuildCondBr(builder, cond_val, body_block, end_block);
+
+            // Body Block
+            LLVMPositionBuilderAtEnd(builder, body_block);
+
+            // Save previous loop targets (recursion support)
+            LLVMBasicBlockRef old_break = current_break_target;
+            LLVMBasicBlockRef old_cont  = current_continue_target;
+            current_break_target = end_block;
+            current_continue_target = cond_block;
+
+            codegen_statement(stmt->while_stmt.body);
+
+            // Loop back if not terminated
+            if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(builder))) {
+                LLVMBuildBr(builder, cond_block);
+            }
+
+            // Restore targets
+            current_break_target = old_break;
+            current_continue_target = old_cont;
+
+            // End Block
+            LLVMPositionBuilderAtEnd(builder, end_block);
+            break;
+        }
+        case STMT_FOR: {
+            LLVMValueRef func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(builder));
+
+            // IMPORTANT: If init is a variable declaration, we need to hoist the
+            // allocation outside the loop but keep the initialization inside
+            LLVMValueRef init_alloca = NULL;
+            StmtNode *init_stmt = stmt->for_stmt.init;
+
+            if (init_stmt && init_stmt->kind == STMT_VAR_DECL) {
+                // Allocate the variable in the current block (before loop)
+                LLVMTypeRef var_type = get_llvm_type_with_pointers(
+                    init_stmt->var_decl.type,
+                    init_stmt->var_decl.pointer_level
+                );
+                init_alloca = LLVMBuildAlloca(builder, var_type, init_stmt->var_decl.name);
+                add_local_var(init_stmt->var_decl.name, init_alloca, init_stmt->var_decl.type, init_stmt->var_decl.pointer_level);
+
+                // Initialize the variable if there's an initializer
+                if (init_stmt->var_decl.initializer) {
+                    LLVMValueRef init_val = codegen_expression(init_stmt->var_decl.initializer);
+                    if (init_stmt->var_decl.pointer_level == 0) {
+                        init_val = convert_to_type(init_val,
+                            init_stmt->var_decl.initializer->type,
+                            init_stmt->var_decl.type);
+                    }
+                    LLVMBuildStore(builder, init_val, init_alloca);
+                }
+            } else if (init_stmt) {
+                // Regular statement (like expression statement)
+                codegen_statement(init_stmt);
+            }
+
+            LLVMBasicBlockRef cond_block = LLVMAppendBasicBlockInContext(context, func, "for_cond");
+            LLVMBasicBlockRef body_block = LLVMAppendBasicBlockInContext(context, func, "for_body");
+            LLVMBasicBlockRef inc_block  = LLVMAppendBasicBlockInContext(context, func, "for_inc");
+            LLVMBasicBlockRef end_block  = LLVMAppendBasicBlockInContext(context, func, "for_end");
+
+            LLVMBuildBr(builder, cond_block);
+
+            // Condition
+            LLVMPositionBuilderAtEnd(builder, cond_block);
+            if (stmt->for_stmt.condition) {
+                LLVMValueRef cond_val = codegen_expression(stmt->for_stmt.condition);
+                cond_val = LLVMBuildTrunc(builder, cond_val, LLVMInt1TypeInContext(context), "booltmp");
+                LLVMBuildCondBr(builder, cond_val, body_block, end_block);
+            } else {
+                LLVMBuildBr(builder, body_block);
+            }
+
+            // Body
+            LLVMPositionBuilderAtEnd(builder, body_block);
+
+            LLVMBasicBlockRef old_break = current_break_target;
+            LLVMBasicBlockRef old_cont  = current_continue_target;
+            current_break_target = end_block;
+            current_continue_target = inc_block;
+
+            codegen_statement(stmt->for_stmt.body);
+
+            if (!LLVMGetBasicBlockTerminator(LLVMGetInsertBlock(builder))) {
+                LLVMBuildBr(builder, inc_block);
+            }
+
+            current_break_target = old_break;
+            current_continue_target = old_cont;
+
+            // Increment
+            LLVMPositionBuilderAtEnd(builder, inc_block);
+            if (stmt->for_stmt.increment) {
+                codegen_expression(stmt->for_stmt.increment);
+            }
+            LLVMBuildBr(builder, cond_block);
+
+            // End
+            LLVMPositionBuilderAtEnd(builder, end_block);
+
+            // Remove the loop variable from local_vars if it was declared in init
+            if (stmt->for_stmt.init && stmt->for_stmt.init->kind == STMT_VAR_DECL) {
+                const char *var_name = stmt->for_stmt.init->var_decl.name;
+                // Find and remove this variable
+                for (int i = local_var_count - 1; i >= 0; i--) {
+                    if (strcmp(local_vars[i].name, var_name) == 0) {
+                        free(local_vars[i].name);
+                        // Shift remaining variables down
+                        for (int j = i; j < local_var_count - 1; j++) {
+                            local_vars[j] = local_vars[j + 1];
+                        }
+                        local_var_count--;
+                        break;
+                    }
+                }
+            }
+
+            break;
+        }
+        case STMT_BREAK: {
+            if (!current_break_target) {
+                fprintf(stderr, "Codegen Error: Break outside loop (logic error)\n");
+                exit(1);
+            }
+            LLVMBuildBr(builder, current_break_target);
+            // Create a dummy block so subsequent code doesn't crash LLVM builder
+            // and position the builder there for any following code
+            LLVMValueRef func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(builder));
+            LLVMBasicBlockRef dead_block = LLVMAppendBasicBlockInContext(context, func, "dead_after_break");
+            LLVMPositionBuilderAtEnd(builder, dead_block);
+            // Add an unreachable instruction to terminate this dead block
+            LLVMBuildUnreachable(builder);
+            break;
+        }
+        case STMT_CONTINUE: {
+            if (!current_continue_target) {
+                fprintf(stderr, "Codegen Error: Continue outside loop (logic error)\n");
+                exit(1);
+            }
+            LLVMBuildBr(builder, current_continue_target);
+            // Create a dummy block
+            LLVMValueRef func = LLVMGetBasicBlockParent(LLVMGetInsertBlock(builder));
+            LLVMBasicBlockRef dead_block = LLVMAppendBasicBlockInContext(context, func, "dead_after_continue");
+            LLVMPositionBuilderAtEnd(builder, dead_block);
+            // Add an unreachable instruction to terminate this dead block
+            LLVMBuildUnreachable(builder);
             break;
         }
         case STMT_ASM: {
@@ -377,17 +598,31 @@ static void codegen_statement(const StmtNode* stmt) {
             break;
         }
         case STMT_VAR_DECL: {
-            // allocate space for variable
-            const LLVMTypeRef var_type = get_llvm_type_with_pointers(stmt->var_decl.type, stmt->var_decl.pointer_level);
-            const LLVMValueRef alloca = LLVMBuildAlloca(builder, var_type, stmt->var_decl.name);
+            LLVMTypeRef var_type = get_llvm_type_with_pointers(stmt->var_decl.type, stmt->var_decl.pointer_level);
 
-            // store initializer if present
+            // Check if variable already exists at this scope level
+            // For now, just don't re-allocate if it exists
+            LLVMValueRef existing = lookup_local_var(stmt->var_decl.name);
+            LLVMValueRef alloca;
+
+            if (existing) {
+                // Variable already allocated (happens with for loop vars in nested loops)
+                alloca = existing;
+            } else {
+                alloca = LLVMBuildAlloca(builder, var_type, stmt->var_decl.name);
+                add_local_var(stmt->var_decl.name, alloca, stmt->var_decl.type, stmt->var_decl.pointer_level);
+            }
+
             if (stmt->var_decl.initializer) {
-                const LLVMValueRef init_val = codegen_expression(stmt->var_decl.initializer);
+                LLVMValueRef init_val = codegen_expression(stmt->var_decl.initializer);
+
+                if (stmt->var_decl.pointer_level == 0) {
+                    init_val = convert_to_type(init_val, stmt->var_decl.initializer->type, stmt->var_decl.type);
+                }
+
                 LLVMBuildStore(builder, init_val, alloca);
             }
 
-            add_local_var(stmt->var_decl.name, alloca);
             break;
         }
         case STMT_EXPR: {
@@ -396,6 +631,13 @@ static void codegen_statement(const StmtNode* stmt) {
         }
         case STMT_COMPOUND: {
             for (int i = 0; i < stmt->compound.count; i++) {
+                // Check if current block is already terminated (e.g., by return)
+                LLVMBasicBlockRef current_block = LLVMGetInsertBlock(builder);
+                if (LLVMGetBasicBlockTerminator(current_block)) {
+                    // Block already terminated, skip remaining statements
+                    break;
+                }
+
                 codegen_statement(stmt->compound.stmts[i]);
             }
             break;
@@ -411,7 +653,7 @@ static void codegen_function(const FunctionNode* func) {
     // build parameter types array
     LLVMTypeRef *param_types = malloc(sizeof(LLVMTypeRef) * func->param_count);
     for (int i = 0; i < func->param_count; i++) {
-        param_types[i] = get_llvm_type(func->params[i].type);
+        param_types[i] = get_llvm_type_with_pointers(func->params[i].type, func->params[i].pointer_level);
     }
 
     // function type
@@ -427,15 +669,14 @@ static void codegen_function(const FunctionNode* func) {
     // add parameters as local variables
     clear_local_vars();
     for (int i = 0; i < func->param_count; i++) {
-        const LLVMValueRef param = LLVMGetParam(llvm_func, i);
+        LLVMValueRef param = LLVMGetParam(llvm_func, i);
         LLVMSetValueName(param, func->params[i].name);
 
-        // allocate stack space and store parameter
-        const LLVMTypeRef param_type = get_llvm_type(func->params[i].type);
-        const LLVMValueRef alloca = LLVMBuildAlloca(builder, param_type, func->params[i].name);
+        LLVMTypeRef param_type = get_llvm_type_with_pointers(func->params[i].type, func->params[i].pointer_level);
+        LLVMValueRef alloca = LLVMBuildAlloca(builder, param_type, func->params[i].name);
         LLVMBuildStore(builder, param, alloca);
 
-        add_local_var(func->params[i].name, alloca);
+        add_local_var(func->params[i].name, alloca, func->params[i].type, func->params[i].pointer_level);
     }
 
     codegen_statement(func->body);
