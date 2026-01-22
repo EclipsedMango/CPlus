@@ -1,5 +1,23 @@
+
+
 int main() {
     print("Hello From C+!\n");
+    
+    int* disp;
+    get_display_buffer(&disp);
+    
+    *disp = 16711680;
+    
+    int a = 0;
+    while (a < 262144) {
+        print_num(a);
+        *disp = 16711680;
+        disp = disp + 4;
+        a = a + 1;
+        
+        update_display();
+    }
+    
     while (1) {
         
     }
@@ -11,10 +29,19 @@ int print(string a) {
     return 0;
 }
 
-int* get_display_buffer() {
-    int* pointer = 0;
+void print_num(int a) {
+    asm("int 0x90" : : "r1"(a));
+}
+
+void get_display_buffer(int** pointer) {
+    int* addr = 0;
     asm("int 0x84" 
-        : "r0"(pointer)
+        : "r0"(addr)
     );
-    return pointer;
+    
+    *pointer = addr;
+}
+
+void update_display() {
+    asm("int 0x86");
 }

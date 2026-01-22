@@ -50,8 +50,9 @@ void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
                 fprintf(stderr, "Error: Variable not found");
                 exit(1);
             }
+            fprintf(file, "    ; getting variable %s\n", expr->text);  // our var is at r7+ the offset to it
             fprintf(file, "    mov r%d, r7\n", reg);  // our var is at r7+ the offset to it
-            fprintf(file, "    add r%d, %d\n", reg, offset);  // add the offset
+            fprintf(file, "    sub r%d, %d\n", reg, offset);  // add the offset
             fprintf(file, "    mov r%d, @r%d\n", reg, reg);  // dereference to get value
             break;
         }
@@ -103,16 +104,16 @@ void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
                             jmp_instr = "jne";
                             break;
                         case BIN_GREATER:
-                            jmp_instr = "ja";
+                            jmp_instr = "jug";
                             break;
                         case BIN_LESS:
-                            jmp_instr = "jb";
+                            jmp_instr = "jul";
                             break;
                         case BIN_GREATER_EQ:
-                            jmp_instr = "jae";
+                            jmp_instr = "juge";
                             break;
                         case BIN_LESS_EQ:
-                            jmp_instr = "jbe";
+                            jmp_instr = "jule";
                             break;
                         default:
                             fprintf(stderr, "Error: Invalid OP, was one added without me knowing?");
@@ -177,7 +178,7 @@ void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
                 fprintf(file, "    mov r6, r%d\n", reg);  // place target value into r6 to save
                 
                 fprintf(file, "    mov r%d, r7\n", reg);  // our var is at r7+ the offset to it
-                fprintf(file, "    add r%d, %d\n", reg, offset);  // add the offset
+                fprintf(file, "    sub r%d, %d\n", reg, offset);  // add the offset
 
                 for (int i = 0; i < dereferenceCount; ++i) {
                     fprintf(file, "    mov r%d, @r%d\n", reg, reg);  // dereference to get pointer out of memory
@@ -223,7 +224,19 @@ void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
                     break;
                 }
                 case UNARY_ADDR_OF: {
+                    if (expr->unary.operand->kind != EXPR_VAR) {
+                        fprintf(stderr, "Error: Address of operand must be variable.");
+                        exit(1);
+                    }
                     
+                    const int offset = map_get(variables, expr->unary.operand->text);
+                    if (offset == -1) {
+                        fprintf(stderr, "Error: Variable not found");
+                        exit(1);
+                    }
+                    
+                    fprintf(file, "    mov r%d, r7\n", reg);
+                    fprintf(file, "    sub r%d, %d\n", reg, offset);
                     break;
                 }
             }
@@ -242,7 +255,8 @@ void codegen_call(const ExprNode* expr, FILE* file) {
     fprintf(file, "\n    ; calling %s\n"
                   "    push r1\n"
                   "    push r2\n"
-                  "    push r3\n", expr->call.function_name);
+                  "    push r3\n"
+                  "    push r7\n", expr->call.function_name);
     current_r7_offset += 4*3;   // space for 3 args
     
     for (int i = 0; i < expr->call.arg_count; ++i) {
@@ -259,7 +273,8 @@ void codegen_call(const ExprNode* expr, FILE* file) {
     
     // restore existing arg registers
     // we can't restore the stack space because we could overwrite variables (yes it's dumb)
-    fprintf(file, "    pop r3\n"
+    fprintf(file, "    pop r7\n"
+                  "    pop r3\n"
                   "    pop r2\n"
                   "    pop r1\n"
                   "    sub sp, 12\n");
@@ -277,9 +292,22 @@ void codegen_statement(const StmtNode* stmt, FILE* file, int loop) {
             break;
         }
         case STMT_VAR_DECL: {
-            fprintf(file, "    sub sp, 4\n");  // allocate space
-            map_add(variables, stmt->var_decl.name, current_r7_offset);
+            fprintf(file, "    sub sp, 4  ; space for %s\n", stmt->var_decl.name);  // allocate space
+            const int varOffset = current_r7_offset;
+            map_add(variables, stmt->var_decl.name, varOffset);
             current_r7_offset += 4;
+            
+            if (stmt->var_decl.initializer == NULL) {
+                break;
+            }
+            
+            // actually set value
+            expr_in_reg(stmt->var_decl.initializer, file, 1);
+            
+            fprintf(file, "    ; initialising %s\n", stmt->var_decl.name);
+            fprintf(file, "    mov r2, r7\n");
+            fprintf(file, "    sub r2, %d\n", varOffset);
+            fprintf(file, "    mov @r2, r1\n");
             break;
         }
         case STMT_EXPR: {
@@ -358,7 +386,7 @@ void codegen_statement(const StmtNode* stmt, FILE* file, int loop) {
                 }
                 fprintf(file, "; outputting %s\n", output->text);
                 fprintf(file, "mov r6, r7\n");  // our var is at r7+ the offset to it
-                fprintf(file, "add r6, %d\n", offset);  // add the offset
+                fprintf(file, "sub r6, %d\n", offset);  // add the offset
                 fprintf(file, "mov @r6, %s\n", stmt->asm_stmt.output_constraints[i]);  // dereference to get value
             }
             
@@ -423,7 +451,7 @@ void codegen_statement(const StmtNode* stmt, FILE* file, int loop) {
 
 void codegen_function(const FunctionNode* function, FILE* file) {
     int oldr7off = current_r7_offset;
-    current_r7_offset = 0;
+    current_r7_offset = 4;  // start at 4 because reasons okay
     
     fprintf(file, "%s:\n", function->name);
     fprintf(file, "%s", prologue);
