@@ -9,6 +9,8 @@ typedef struct SourceLocation {
     const char *filename;
 } SourceLocation;
 
+int max(int a, int b);
+
 // VECTOR IMPL
 
 typedef struct Vector {

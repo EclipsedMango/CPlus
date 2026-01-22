@@ -243,12 +243,16 @@ static ExprNode *make_var(const char *name) {
 }
 
 static ExprNode *make_binop(const TokenType op, ExprNode *left, ExprNode *right) {
+    if (left->pointer_level > 0 && right->pointer_level > 0) {
+        report_error(current_token().location, "Both sides of binop %s cannot be pointer.", token_type_to_string(op));
+    }
+
     ExprNode *e = malloc(sizeof(ExprNode));
     e->kind = EXPR_BINOP;
     e->binop.op = token_to_binop(op);
     e->binop.left = left;
     e->binop.right = right;
-    e->pointer_level = 0;
+    e->pointer_level = max(left->pointer_level, right->pointer_level);
     return e;
 }
 

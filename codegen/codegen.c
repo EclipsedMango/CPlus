@@ -170,8 +170,38 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
             }
 
             switch (expr->binop.op) {
-                case BIN_ADD: return LLVMBuildAdd(builder, left, right, "addtmp");
-                case BIN_SUB: return LLVMBuildSub(builder, left, right, "subtmp");
+                case BIN_ADD: {
+                    LLVMTypeRef left_type = LLVMTypeOf(left);
+                    LLVMTypeRef right_type = LLVMTypeOf(right);
+
+                    if (LLVMGetTypeKind(left_type) == LLVMPointerTypeKind) {
+                        // Pointer + integer: use GEP
+                        // Use i8 as the element type for pointer arithmetic
+                        LLVMTypeRef i8_type = LLVMInt8TypeInContext(LLVMGetGlobalContext());
+                        return LLVMBuildGEP2(builder, i8_type, left, &right, 1, "addtmp");
+                    } else if (LLVMGetTypeKind(right_type) == LLVMPointerTypeKind) {
+                        // Integer + pointer: use GEP
+                        LLVMTypeRef i8_type = LLVMInt8TypeInContext(LLVMGetGlobalContext());
+                        return LLVMBuildGEP2(builder, i8_type, right, &left, 1, "addtmp");
+                    } else {
+                        // Regular integer addition
+                        return LLVMBuildAdd(builder, left, right, "addtmp");
+                    }
+                }
+                case BIN_SUB: {
+                    // Check if left operand is a pointer
+                    LLVMTypeRef left_type = LLVMTypeOf(left);
+
+                    if (LLVMGetTypeKind(left_type) == LLVMPointerTypeKind) {
+                        // Pointer - integer: negate the offset and use GEP
+                        LLVMValueRef neg_right = LLVMBuildNeg(builder, right, "negtmp");
+                        LLVMTypeRef i8_type = LLVMInt8TypeInContext(LLVMGetGlobalContext());
+                        return LLVMBuildGEP2(builder, i8_type, left, &neg_right, 1, "subtmp");
+                    } else {
+                        // Regular integer subtraction
+                        return LLVMBuildSub(builder, left, right, "subtmp");
+                    }
+                }
                 case BIN_MUL: return LLVMBuildMul(builder, left, right, "multmp");
                 case BIN_DIV: return LLVMBuildSDiv(builder, left, right, "divtmp");
                 case BIN_ASSIGN: {

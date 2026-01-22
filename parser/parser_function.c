@@ -8,13 +8,14 @@ static TypeKind token_to_typekind(const TokenType token) {
     switch (token) {
         case TOK_INT: return TYPE_INT;
         case TOK_LONG: return TYPE_LONG;
+        case TOK_CHAR: return TYPE_CHAR;
         case TOK_FLOAT: return TYPE_FLOAT;
         case TOK_DOUBLE: return TYPE_DOUBLE;
         case TOK_STRING_KW: return TYPE_STRING;
         case TOK_BOOL: return TYPE_BOOLEAN;
         case TOK_VOID: return TYPE_VOID;
         default: {
-            fprintf(stderr, "invalid type token: %d\n", token);
+            fprintf(stderr, "invalid function type token: %s\n", token_type_to_string(token));
             exit(1);
         }
     }

@@ -1,3 +1,19 @@
+
+int string_length(char* str) {
+    int len = 0;
+    while (*str != 0) {
+        str = str + 1;
+        len = len + 1;
+    }
+
+    return len;
+}
+
+void print(string msg) {
+    int len = string_length(msg);
+    asm("mov rax, 1; mov rdi, 1; mov rsi, $0; mov rdx, $1; syscall", msg, len);
+}
+
 void set_value(int* ptr, int val) {
     *ptr = val;
     return;
@@ -5,6 +21,9 @@ void set_value(int* ptr, int val) {
 }
 
 int main() {
+    // Test!!!
+    print("Fuck you zane!\n");
+
     int status = 0;
 
     int x = 42;

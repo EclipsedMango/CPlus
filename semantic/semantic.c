@@ -52,6 +52,9 @@ static int types_compatible_with_pointers(const TypeKind target_type, const int 
     if (target_type == TYPE_STRING && source_type == TYPE_CHAR && source_ptr_level == 1) return 1;
     if (target_type == TYPE_CHAR && target_ptr_level == 1 && source_type == TYPE_STRING) return 1;
 
+    if (target_type == TYPE_INT && source_ptr_level > 0) return 1;
+    if (source_type == TYPE_INT && target_ptr_level > 0) return 1;
+
     // otherwise, pointer levels must match and types must be compatible
     if (target_ptr_level != source_ptr_level) return 0;
     return types_compatible(target_type, source_type);
@@ -182,7 +185,7 @@ static void analyze_expression(ExprNode* expr, Scope* scope) {
                 }
 
                 expr->type = lhs;
-                expr->pointer_level = 0;
+                expr->pointer_level = max(expr->binop.left->pointer_level, expr->binop.right->pointer_level);
                 break;
             }
 
@@ -211,7 +214,7 @@ static void analyze_expression(ExprNode* expr, Scope* scope) {
                 }
 
                 expr->type = lhs;
-                expr->pointer_level = expr->binop.right->pointer_level;
+                expr->pointer_level = max(expr->binop.left->pointer_level, expr->binop.right->pointer_level);
                 break;
             }
 

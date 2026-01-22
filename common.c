@@ -5,6 +5,10 @@
 #include <stdarg.h>
 #include <string.h>
 
+int max(const int a, const int b) {
+    return a > b ? a : b;
+}
+
 Vector create_vector(const int capacity, const int element_size) {
     return (Vector){.capacity = capacity, .length = 0, .element_size = element_size, .elements = malloc(element_size * capacity)};
 }

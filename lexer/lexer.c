@@ -68,6 +68,17 @@ void lexer_init(const char *filename) {
     current_filename = filename;
 }
 
+static void skip_line_comment(FILE *f) {
+    int c;
+    while ((c = fgetc(f)) != EOF && c != '\n') {
+        current_column++;
+    }
+    if (c == '\n') {
+        current_line++;
+        current_column = 1;
+    }
+}
+
 static int skip_whitespace(FILE *f) {
     int c;
     do {
@@ -202,6 +213,7 @@ static Token lex_string_literal(FILE *f) {
             c = next_char(f);
             switch (c) {
                 case 'n':  ch = '\n'; break;
+                case '0':  ch = '\0'; break;
                 case 't':  ch = '\t'; break;
                 case '"':  ch = '"';  break;
                 case '\\': ch = '\\'; break;
@@ -265,12 +277,20 @@ static Token lex_operator_or_punct(FILE *f, const int c) {
             ungetc(next, f);
             return (Token){TOK_NOT, "!", loc };
         }
+        case '/': {
+            next = next_char(f);
+            if (next == '/') {
+                skip_line_comment(f);
+                return (Token){TOK_EOF, NULL, loc}; // signal to get next token
+            }
+            ungetc(next, f);
+            return (Token){.type = TOK_DIVIDE, OP_DIVIDE, loc};
+        }
 
         // single-char operators
         case '+': return (Token){.type = TOK_PLUS, OP_PLUS, loc};
         case '-': return (Token){.type = TOK_SUBTRACT, OP_MINUS, loc};
         case '*': return (Token){.type = TOK_ASTERISK, OP_ASTERISK, loc};
-        case '/': return (Token){.type = TOK_DIVIDE, OP_DIVIDE, loc};
         case '%': return (Token){.type = TOK_MODULO, OP_MODULO, loc};
 
         // punctuation / delimiters
@@ -286,19 +306,20 @@ static Token lex_operator_or_punct(FILE *f, const int c) {
 }
 
 Token next_token(FILE *f) {
-    const int c = skip_whitespace(f);
+    while (1) {
+        const int c = skip_whitespace(f);
 
-    if (c == EOF) return (Token){TOK_EOF, NULL};
-    if (c == '"') return lex_string_literal(f);
+        if (c == EOF) return (Token){TOK_EOF, NULL};
+        if (c == '"') return lex_string_literal(f);
 
-    if (isdigit(c)) return lex_number_literal(f, c);
-    if (isalpha(c)) return lex_identifier_or_keyword(f, c);
+        if (isdigit(c)) return lex_number_literal(f, c);
+        if (isalpha(c) || c == '_') return lex_identifier_or_keyword(f, c);
 
-    const Token t = lex_operator_or_punct(f, c);
-    if (t.type != TOK_EOF) return t;
+        const Token t = lex_operator_or_punct(f, c);
+        if (t.type != TOK_EOF) return t;
 
-    report_error(make_location(), "Unexpected character: '%c'", c);
-    exit(1);
+        // if we got TOK_EOF from a comment, loop again to get the next real token
+    }
 }
 
 const char* token_type_to_string(const TokenType type) {
