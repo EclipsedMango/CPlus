@@ -381,12 +381,12 @@ void codegen_statement(const StmtNode* stmt, FILE* file, const int loop) {
             expr_in_reg(stmt->if_stmt.condition, file, 1);
             const int branch = branch_num++;
             fprintf(file, "    cmp r1, 1\n");
-            fprintf(file, "    je .true\n");
+            fprintf(file, "    je .true_%d\n", branch);
             fprintf(file, "    ; false\n");
             if (stmt->if_stmt.else_stmt != NULL) {
                 codegen_statement(stmt->if_stmt.else_stmt, file, loop);
             }
-            fprintf(file, "    jmp .done%d\n", branch);
+            fprintf(file, "    jmp .done_%d\n", branch);
             fprintf(file, ".true_%d:\n", branch);
             codegen_statement(stmt->if_stmt.then_stmt, file, loop);
             fprintf(file, ".done_%d:\n", branch);
