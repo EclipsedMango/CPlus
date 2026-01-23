@@ -22,9 +22,10 @@ This project is a **work in progress!** Currently supported features:
 - break statements
 - return statments
 - inline ASM using c like syntax and intel asm dialect
-- pointers and addresses
+- pointers and addresses, returning pointers
 - string, long, int, char, float, double, bool and void types
-- comments 
+- comments
+- arrays and arrays decaying to pointers
 
 -----
 ### Getting started
