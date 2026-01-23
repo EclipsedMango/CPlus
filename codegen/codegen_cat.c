@@ -47,7 +47,7 @@ void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
         case EXPR_VAR: {
             const int offset = map_get(variables, expr->text);
             if (offset == -1) {
-                fprintf(stderr, "Error: Variable not found");
+                fprintf(stderr, "Error: Variable not found %s", expr->text);
                 exit(1);
             }
             fprintf(file, "    ; getting variable %s\n", expr->text);  // our var is at r7+ the offset to it
@@ -177,7 +177,7 @@ void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
                 
                 const int offset = map_get(variables, varName);
                 if (offset == -1) {
-                    fprintf(stderr, "Error: Variable not found");
+                    fprintf(stderr, "Error: Variable not found %s", varName);
                     exit(1);
                 }
                 
@@ -249,7 +249,7 @@ void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
                     
                     const int offset = map_get(variables, expr->unary.operand->text);
                     if (offset == -1) {
-                        fprintf(stderr, "Error: Variable not found");
+                        fprintf(stderr, "Error: Variable not found %s", expr->unary.operand->text);
                         exit(1);
                     }
                     
@@ -268,7 +268,7 @@ void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
             
             const int offset = map_get(variables, expr->array_index.array->text);
             if (offset == -1) {
-                fprintf(stderr, "Error: Variable not found");
+                fprintf(stderr, "Error: Variable not found %s", expr->array_index.array->text);
                 exit(1);
             }
             
@@ -428,7 +428,7 @@ void codegen_statement(const StmtNode* stmt, FILE* file, const int loop) {
                 
                 const int offset = map_get(variables, output->text);
                 if (offset == -1) {
-                    fprintf(stderr, "Error: Variable not found");
+                    fprintf(stderr, "Error: Variable not found %s", output->text);
                     exit(1);
                 }
                 fprintf(file, "; outputting %s\n", output->text);
@@ -564,6 +564,6 @@ void codegen_program_cat(const ProgramNode* program, const char* output_file) {
             }
         }
         
-        fprintf(output, "    d8 %s\n", data);
+        fprintf(output, "    d8 %s, 0\n", data);
     }
 }
