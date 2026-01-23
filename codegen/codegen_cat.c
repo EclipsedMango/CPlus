@@ -192,10 +192,12 @@ void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
                     fprintf(file, "    mov r%d, r7\n", reg);  // our var is at r7+ the offset to it
                     fprintf(file, "    sub r%d, %d\n", reg, offset);  // add the offset
                 } else {
-                    expr_in_reg(arrayIndex, file, reg);
-                    fprintf(file, "    umul r%d, 4\n", reg);
-                    fprintf(file, "    add r%d, r7\n", reg);
+                    expr_in_reg(arrayIndex, file, 3);
+                    fprintf(file, "    umul r3, 4\n");
+                    fprintf(file, "    mov r%d, r7\n", reg);
                     fprintf(file, "    sub r%d, %d\n", reg, offset);
+                    fprintf(file, "    mov r%d, @r%d\n", reg, reg);
+                    fprintf(file, "    add r%d, r3\n", reg);
                 }
 
                 for (int i = 0; i < dereferenceCount; ++i) {
@@ -273,10 +275,12 @@ void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
             }
             
             fprintf(file, "    ; getting value in array %s\n", expr->array_index.array->text);
-            expr_in_reg(expr->array_index.index, file, reg);
-            fprintf(file, "    umul r%d, 4\n", reg);
-            fprintf(file, "    add r%d, r7\n", reg);
+            expr_in_reg(expr->array_index.index, file, 3);
+            fprintf(file, "    mov r%d, r7\n", reg);
             fprintf(file, "    sub r%d, %d\n", reg, offset);
+            fprintf(file, "    mov r%d, @r%d\n", reg, reg);
+            fprintf(file, "    umul r3, 4\n");
+            fprintf(file, "    add r%d, r3\n", reg);
             fprintf(file, "    mov r%d, @r%d\n", reg, reg);
             break;
         }
@@ -330,14 +334,22 @@ void codegen_statement(const StmtNode* stmt, FILE* file, const int loop) {
             break;
         }
         case STMT_VAR_DECL: {
-            int space = stmt->var_decl.array_size;
-            if (space == 0) space = 1;
-            space = space * 4;
-            
-            fprintf(file, "    sub sp, %d  ; space for %s\n", space, stmt->var_decl.name);  // allocate space
+            fprintf(file, "    sub sp, 4  ; space for %s\n", stmt->var_decl.name);  // allocate space
             const int varOffset = current_r7_offset;
             map_add(variables, stmt->var_decl.name, varOffset);
-            current_r7_offset += space;
+            current_r7_offset += 4;
+            
+            if (stmt->var_decl.array_size > 0) {
+                // the initialiser is basically the pointer value
+                fprintf(file, "    ; initialising %s\n", stmt->var_decl.name);
+                fprintf(file, "    mov r2, sp\n");
+                fprintf(file, "    sub r2, %d\n", stmt->var_decl.array_size * 4);
+                fprintf(file, "    mov @sp, r2\n");
+                
+                fprintf(file, "    sub sp, %d  ; ARRAY space for %s\n", 
+                    stmt->var_decl.array_size * 4, 
+                    stmt->var_decl.name);  // allocate array space
+            }
             
             if (stmt->var_decl.initializer == NULL) {
                 break;
