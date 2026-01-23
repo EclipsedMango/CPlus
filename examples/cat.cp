@@ -3,6 +3,13 @@
 int main() {
     print("Hello From C+!\n");
     
+    int[7] arr;
+    arr[0] = 4;
+    arr[1] = 3;
+    arr[2] = 16711680;
+    
+    int c = arr[0];
+    
     int* disp;
     get_display_buffer(&disp);
     
@@ -11,7 +18,7 @@ int main() {
     int a = 0;
     while (a < 262144) {
         print_num(a);
-        *disp = 16711680;
+        *disp = arr[2];
         disp = disp + 4;
         a = a + 1;
         

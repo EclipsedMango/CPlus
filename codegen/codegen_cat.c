@@ -146,6 +146,7 @@ void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
                               "    pop r4\n");
             } else {  // assignment
                 char* varName;
+                ExprNode* arrayIndex = NULL;
                 int dereferenceCount = 0;
                 const ExprNode* currentExpr = expr->binop.left;
                 while (1) {
@@ -153,12 +154,22 @@ void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
                         varName = currentExpr->text;
                         break;
                     }
-                        
+                    
+                    if (currentExpr->kind == EXPR_ARRAY_INDEX) {
+                        arrayIndex = currentExpr->array_index.index;
+                        if (currentExpr->array_index.array->kind != EXPR_VAR) {
+                            fprintf(stderr, "Error: array must be var.");
+                            exit(1);
+                        }
+                        varName = currentExpr->array_index.array->text;
+                        break;
+                    }
+                    
                     if (currentExpr->kind != EXPR_UNARY || currentExpr->unary.op != UNARY_DEREF) {
                         fprintf(stderr, "Error: Non variable assignment target must be deref binop.");
                         exit(1);
                     }
-                        
+                    
                     // okay now we can recursively dereference
                     dereferenceCount++;
                     currentExpr = currentExpr->unary.operand;
@@ -177,8 +188,15 @@ void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
                 fprintf(file, "    push r6\n");  // preserve it
                 fprintf(file, "    mov r6, r%d\n", reg);  // place target value into r6 to save
                 
-                fprintf(file, "    mov r%d, r7\n", reg);  // our var is at r7+ the offset to it
-                fprintf(file, "    sub r%d, %d\n", reg, offset);  // add the offset
+                if (arrayIndex == NULL) {
+                    fprintf(file, "    mov r%d, r7\n", reg);  // our var is at r7+ the offset to it
+                    fprintf(file, "    sub r%d, %d\n", reg, offset);  // add the offset
+                } else {
+                    expr_in_reg(arrayIndex, file, reg);
+                    fprintf(file, "    umul r%d, 4\n", reg);
+                    fprintf(file, "    add r%d, r7\n", reg);
+                    fprintf(file, "    sub r%d, %d\n", reg, offset);
+                }
 
                 for (int i = 0; i < dereferenceCount; ++i) {
                     fprintf(file, "    mov r%d, @r%d\n", reg, reg);  // dereference to get pointer out of memory
@@ -242,6 +260,26 @@ void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
             }
             break;
         }
+        case EXPR_ARRAY_INDEX: {
+            if (expr->array_index.array->kind != EXPR_VAR) {
+                fprintf(stderr, "Error: array index array type is not variable, is: %d.", expr->array_index.array->kind);
+                exit(1);
+            }
+            
+            const int offset = map_get(variables, expr->array_index.array->text);
+            if (offset == -1) {
+                fprintf(stderr, "Error: Variable not found");
+                exit(1);
+            }
+            
+            fprintf(file, "    ; getting value in array %s\n", expr->array_index.array->text);
+            expr_in_reg(expr->array_index.index, file, reg);
+            fprintf(file, "    umul r%d, 4\n", reg);
+            fprintf(file, "    add r%d, r7\n", reg);
+            fprintf(file, "    sub r%d, %d\n", reg, offset);
+            fprintf(file, "    mov r%d, @r%d\n", reg, reg);
+            break;
+        }
         default: {
             fprintf(stderr, "Error: invalid expression type: %d.", expr->kind);
             exit(1);
@@ -280,7 +318,7 @@ void codegen_call(const ExprNode* expr, FILE* file) {
                   "    sub sp, 12\n");
 }
 
-void codegen_statement(const StmtNode* stmt, FILE* file, int loop) {
+void codegen_statement(const StmtNode* stmt, FILE* file, const int loop) {
     switch (stmt->kind) {
         case STMT_RETURN: {
             if (!stmt->return_stmt.expr) {
@@ -292,13 +330,22 @@ void codegen_statement(const StmtNode* stmt, FILE* file, int loop) {
             break;
         }
         case STMT_VAR_DECL: {
-            fprintf(file, "    sub sp, 4  ; space for %s\n", stmt->var_decl.name);  // allocate space
+            int space = stmt->var_decl.array_size;
+            if (space == 0) space = 1;
+            space = space * 4;
+            
+            fprintf(file, "    sub sp, %d  ; space for %s\n", space, stmt->var_decl.name);  // allocate space
             const int varOffset = current_r7_offset;
             map_add(variables, stmt->var_decl.name, varOffset);
-            current_r7_offset += 4;
+            current_r7_offset += space;
             
             if (stmt->var_decl.initializer == NULL) {
                 break;
+            }
+            
+            if (stmt->var_decl.array_size != 0) {
+                fprintf(stderr, "Error: array initialisation is not supported.");
+                exit(1);
             }
             
             // actually set value
