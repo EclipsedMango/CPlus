@@ -60,8 +60,8 @@ void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
             const BinaryOp op = expr->binop.op;
             if (op < BIN_ASSIGN || op > BIN_ASSIGN) {  // compare or maths
                 // let's just use r4 and r5 (we need to preserve them in case of nested ops)
-                fprintf(file, "    push r4\n"
-                              "    push r5\n");
+                if (reg != 4) fprintf(file, "    push r4\n");
+                if (reg != 5) fprintf(file, "    push r5\n");
                 expr_in_reg(expr->binop.left, file, 4);
                 expr_in_reg(expr->binop.right, file, 5);
                     
@@ -142,8 +142,8 @@ void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
                 }
                 
                 // restore registers
-                fprintf(file, "    pop r5\n"
-                              "    pop r4\n");
+                if (reg != 5) fprintf(file, "    pop r5\n");
+                if (reg != 4) fprintf(file, "    pop r4\n");
             } else {  // assignment
                 char* varName;
                 ExprNode* arrayIndex = NULL;

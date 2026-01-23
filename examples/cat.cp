@@ -13,10 +13,10 @@ int main() {
     int* disp;
     get_display_buffer(&disp);
     
-    *disp = 16711680;
+    *disp = 16711680;  // 0xFF0000
     
     int a = 0;
-    while (a < 262144) {
+    while (a < (512*512)) {  // 512*512
         print_num(a);
         *disp = arr[2];
         disp = disp + 4;
