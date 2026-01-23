@@ -52,6 +52,12 @@ static int types_compatible_with_pointers(const TypeKind target_type, const int 
     if (target_type == TYPE_STRING && source_type == TYPE_CHAR && source_ptr_level == 1) return 1;
     if (target_type == TYPE_CHAR && target_ptr_level == 1 && source_type == TYPE_STRING) return 1;
 
+    // void* compatibility (generic pointer)
+    if (target_ptr_level > 0 && source_ptr_level > 0) {
+        if (target_type == TYPE_VOID || source_type == TYPE_VOID) return 1;
+    }
+
+    // int to pointer implicit conversion
     if (target_type == TYPE_INT && source_ptr_level > 0) return 1;
     if (source_type == TYPE_INT && target_ptr_level > 0) return 1;
 
@@ -138,14 +144,14 @@ static void analyze_expression(ExprNode* expr, Scope* scope) {
 
             if (expr->unary.op == UNARY_NOT) {
                 if (expr->unary.operand->type == TYPE_VOID || expr->unary.operand->type == TYPE_STRING) {
-                    report_error(expr->location, "Invalid type '%s' for '!' operator. Expected boolean or number.", type_to_str(expr->unary.operand->type));
+                    report_error(expr->location, "Invalid type '%s' for '!' operator.", type_to_str(expr->unary.operand->type));
                 }
 
                 expr->pointer_level = 0;
                 expr->type = TYPE_BOOLEAN;
             } else if (expr->unary.op == UNARY_NEG) {
                 if (!is_numeric_type(expr->unary.operand->type)) {
-                    report_error(expr->location, "Invalid type '%s' for unary '-' operator. Expected numeric type.", type_to_str(expr->unary.operand->type));
+                    report_error(expr->location, "Invalid type '%s' for unary '-' operator.", type_to_str(expr->unary.operand->type));
                 }
 
                 expr->type = expr->unary.operand->type;
@@ -158,7 +164,8 @@ static void analyze_expression(ExprNode* expr, Scope* scope) {
                 expr->type = expr->unary.operand->type;
                 expr->pointer_level = expr->unary.operand->pointer_level - 1;
             } else if (expr->unary.op == UNARY_ADDR_OF) {
-                if (expr->unary.operand->kind != EXPR_VAR) {
+                if (expr->unary.operand->kind != EXPR_VAR &&
+        !(expr->unary.operand->kind == EXPR_UNARY && expr->unary.operand->unary.op == UNARY_DEREF) && expr->unary.operand->kind != EXPR_ARRAY_INDEX) {
                     report_error(expr->location, "Cannot take address of non-lvalue");
                 }
 
@@ -176,6 +183,18 @@ static void analyze_expression(ExprNode* expr, Scope* scope) {
             const TypeKind rhs = expr->binop.right->type;
 
             if (is_arithmetic_op(expr->binop.op)) {
+                if (expr->binop.left->pointer_level > 0 && is_numeric_type(rhs)) {
+                    expr->type = lhs;
+                    expr->pointer_level = expr->binop.left->pointer_level;
+                    break;
+                }
+
+                if (is_numeric_type(lhs) && expr->binop.right->pointer_level > 0) {
+                    expr->type = rhs;
+                    expr->pointer_level = expr->binop.right->pointer_level;
+                    break;
+                }
+
                 if (!is_numeric_type(lhs) || !is_numeric_type(rhs)) {
                     report_error(expr->location, "Arithmetic operator requires numeric types. Got '%s' and '%s'.", type_to_str(lhs), type_to_str(rhs));
                 }
@@ -185,12 +204,12 @@ static void analyze_expression(ExprNode* expr, Scope* scope) {
                 }
 
                 expr->type = lhs;
-                expr->pointer_level = max(expr->binop.left->pointer_level, expr->binop.right->pointer_level);
+                expr->pointer_level = 0;
                 break;
             }
 
             if (is_comparison_op(expr->binop.op)) {
-                if (!types_compatible(lhs, rhs)) {
+                if (!types_compatible_with_pointers(lhs, expr->binop.left->pointer_level, rhs, expr->binop.right->pointer_level)) {
                     report_error(expr->location, "Type mismatch in comparison: '%s' vs '%s'", type_to_str(lhs), type_to_str(rhs));
                 }
 
@@ -200,17 +219,14 @@ static void analyze_expression(ExprNode* expr, Scope* scope) {
             }
 
             if (is_assignment_op(expr->binop.op)) {
-                if (expr->binop.left->kind != EXPR_VAR && !(expr->binop.left->kind == EXPR_UNARY && expr->binop.left->unary.op == UNARY_DEREF)) {
-                    report_error(expr->location, "Left-hand side of assignment must be a variable or dereferenced pointer.");
+                if (expr->binop.left->kind != EXPR_VAR && !(expr->binop.left->kind == EXPR_UNARY && expr->binop.left->unary.op == UNARY_DEREF) && expr->binop.left->kind != EXPR_ARRAY_INDEX) {
+                    report_error(expr->location, "Left-hand side of assignment must be a variable, dereferenced pointer, or array element.");
                 }
 
                 if (!types_compatible_with_pointers(lhs, expr->binop.left->pointer_level, rhs, expr->binop.right->pointer_level)) {
                     report_error(expr->location, "Type mismatch in assignment. Cannot assign '%s%s' to '%s%s'.",
-                        type_to_str(rhs),
-                        expr->binop.right->pointer_level > 0 ? "*" : "",
-                        type_to_str(lhs),
-                        expr->binop.left->pointer_level > 0 ? "*" : ""
-                    );
+                        type_to_str(rhs), expr->binop.right->pointer_level > 0 ? "*" : "",
+                        type_to_str(lhs), expr->binop.left->pointer_level > 0 ? "*" : "");
                 }
 
                 expr->type = lhs;
@@ -248,7 +264,23 @@ static void analyze_expression(ExprNode* expr, Scope* scope) {
             }
 
             expr->type = func_sym->type;
-            expr->pointer_level = 0;
+            expr->pointer_level = func_sym->pointer_level;
+            break;
+        }
+        case EXPR_ARRAY_INDEX: {
+            analyze_expression(expr->array_index.array, scope);
+            analyze_expression(expr->array_index.index, scope);
+
+            if (expr->array_index.array->pointer_level == 0) {
+                report_error(expr->location, "Cannot index non-pointer/non-array type '%s'", type_to_str(expr->array_index.array->type));
+            }
+
+            if (!is_numeric_type(expr->array_index.index->type)) {
+                report_error(expr->location, "Array index must be a numeric type, got '%s'", type_to_str(expr->array_index.index->type));
+            }
+
+            expr->type = expr->array_index.array->type;
+            expr->pointer_level = expr->array_index.array->pointer_level - 1;
             break;
         }
         default: {
@@ -258,32 +290,32 @@ static void analyze_expression(ExprNode* expr, Scope* scope) {
     }
 }
 
-static bool analyze_statement(const StmtNode* stmt, Scope* scope, const TypeKind expected_ret_type, bool in_loop) {
+static bool analyze_statement(const StmtNode* stmt, Scope* scope, const TypeKind expected_ret_type, const int expected_ret_ptr_level, bool in_loop)  {
     switch (stmt->kind) {
         case STMT_RETURN: {
             if (stmt->return_stmt.expr) {
-                if (expected_ret_type == TYPE_VOID) {
+                if (expected_ret_type == TYPE_VOID && expected_ret_ptr_level == 0) {
                     report_error(stmt->location, "Void function cannot return a value.");
                 }
 
                 analyze_expression(stmt->return_stmt.expr, scope);
 
-                bool types_match = types_compatible(expected_ret_type, stmt->return_stmt.expr->type);
-
-                if (stmt->return_stmt.expr->pointer_level != 0 && expected_ret_type == TYPE_VOID) {
-                    types_match = false;
-                }
-
-                if (!types_match) {
+                if (!types_compatible_with_pointers(expected_ret_type, expected_ret_ptr_level,
+                                                    stmt->return_stmt.expr->type, stmt->return_stmt.expr->pointer_level)) {
                     report_error(stmt->location,
-                        "Return type mismatch. Expected '%s', got '%s'.",
+                        "Return type mismatch. Expected '%s%s', got '%s%s'.",
                         type_to_str(expected_ret_type),
-                        type_to_str(stmt->return_stmt.expr->type)
+                        expected_ret_ptr_level > 0 ? "*" : "",
+                        type_to_str(stmt->return_stmt.expr->type),
+                        stmt->return_stmt.expr->pointer_level > 0 ? "*" : ""
                     );
                 }
             } else {
-                if (expected_ret_type != TYPE_VOID) {
-                    report_error(stmt->location, "Non-void function must return a value of type '%s'.", type_to_str(expected_ret_type));
+                if (expected_ret_type != TYPE_VOID || expected_ret_ptr_level > 0) {
+                    report_error(stmt->location, "Non-void function must return a value of type '%s%s'.",
+                        type_to_str(expected_ret_type),
+                        expected_ret_ptr_level > 0 ? "*" : ""
+                    );
                 }
             }
             return true;
@@ -297,12 +329,12 @@ static bool analyze_statement(const StmtNode* stmt, Scope* scope, const TypeKind
 
             bool then_returns = false;
             if (stmt->if_stmt.then_stmt) {
-                then_returns = analyze_statement(stmt->if_stmt.then_stmt, scope, expected_ret_type, in_loop);
+                then_returns = analyze_statement(stmt->if_stmt.then_stmt, scope, expected_ret_type, expected_ret_ptr_level, in_loop);
             }
 
             bool else_returns = false;
             if (stmt->if_stmt.else_stmt) {
-                else_returns = analyze_statement(stmt->if_stmt.else_stmt, scope, expected_ret_type, in_loop);
+                else_returns = analyze_statement(stmt->if_stmt.else_stmt, scope, expected_ret_type, expected_ret_ptr_level, in_loop);
             }
 
             return then_returns && else_returns;
@@ -313,14 +345,14 @@ static bool analyze_statement(const StmtNode* stmt, Scope* scope, const TypeKind
                 report_error(stmt->location, "While condition must be boolean or numeric.");
             }
 
-            analyze_statement(stmt->while_stmt.body, scope, expected_ret_type, true);
+            analyze_statement(stmt->while_stmt.body, scope, expected_ret_type, expected_ret_ptr_level, true);
             return false;
         }
         case STMT_FOR: {
             Scope *loop_scope = scope_create(scope);
 
             if (stmt->for_stmt.init) {
-                analyze_statement(stmt->for_stmt.init, loop_scope, expected_ret_type, false);
+                analyze_statement(stmt->for_stmt.init, loop_scope, expected_ret_type, expected_ret_ptr_level, false);
             }
 
             if (stmt->for_stmt.condition) {
@@ -334,7 +366,7 @@ static bool analyze_statement(const StmtNode* stmt, Scope* scope, const TypeKind
                 analyze_expression(stmt->for_stmt.increment, loop_scope);
             }
 
-            analyze_statement(stmt->for_stmt.body, loop_scope, expected_ret_type, true);
+            analyze_statement(stmt->for_stmt.body, loop_scope, expected_ret_type, expected_ret_ptr_level, true);
 
             scope_destroy(loop_scope);
             return false;
@@ -369,7 +401,13 @@ static bool analyze_statement(const StmtNode* stmt, Scope* scope, const TypeKind
             sym->name = strdup(stmt->var_decl.name);
             sym->kind = SYM_VARIABLE;
             sym->type = stmt->var_decl.type;
-            sym->pointer_level = stmt->var_decl.pointer_level;
+
+            if (stmt->var_decl.array_size > 0) {
+                sym->pointer_level = stmt->var_decl.pointer_level + 1;
+            } else {
+                sym->pointer_level = stmt->var_decl.pointer_level;
+            }
+
             sym->location = stmt->location;
 
             scope_add_symbol(scope, sym);
@@ -402,7 +440,7 @@ static bool analyze_statement(const StmtNode* stmt, Scope* scope, const TypeKind
 
             for (int i = 0; i < stmt->compound.count; i++) {
                 // if one returns, the block returns.
-                if (analyze_statement(stmt->compound.stmts[i], block_scope, expected_ret_type, in_loop)) {
+                if (analyze_statement(stmt->compound.stmts[i], block_scope, expected_ret_type, expected_ret_ptr_level, in_loop)) {
                     does_return = true;
                 }
             }
@@ -438,7 +476,7 @@ static void analyze_function(const FunctionNode *func, Scope *global) {
         scope_add_symbol(func_scope, sym);
     }
 
-    const bool returns_value = analyze_statement(func->body, func_scope, func->return_type, false);
+    const bool returns_value = analyze_statement(func->body, func_scope, func->return_type, func->return_pointer_level, false);
     if (func->return_type != TYPE_VOID && !returns_value) {
         report_error(func->location, "Function '%s' is declared to return '%s' but not all control paths return a value.", func->name, type_to_str(func->return_type));
     }
@@ -451,9 +489,7 @@ void analyze_program(const ProgramNode *program) {
 
     for (int i = 0; i < program->function_count; ++i) {
         const FunctionNode* func = program->functions[i];
-
-        const Symbol* existing = scope_lookup(global, func->name);
-        if (existing) {
+        if (scope_lookup(global, func->name)) {
             fprintf(stderr, "Error: function '%s' already declared\n", func->name);
             exit(1);
         }
@@ -462,6 +498,7 @@ void analyze_program(const ProgramNode *program) {
         sym->name = strdup(func->name);
         sym->kind = SYM_FUNCTION;
         sym->type = func->return_type;
+        sym->pointer_level = func->return_pointer_level;
         sym->location = func->location;
 
         scope_add_symbol(global, sym);

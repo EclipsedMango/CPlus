@@ -14,6 +14,7 @@ typedef struct {
     LLVMValueRef value;
     TypeKind type;
     int pointer_level;
+    int array_size;
 } CodegenSymbol;
 
 static CodegenSymbol *local_vars = NULL;
@@ -23,7 +24,7 @@ static int local_var_capacity = 0;
 static LLVMBasicBlockRef current_break_target = NULL;
 static LLVMBasicBlockRef current_continue_target = NULL;
 
-static void add_local_var(const char *name, const LLVMValueRef value, const TypeKind type, const int pointer_level) {
+static void add_local_var(const char *name, const LLVMValueRef value, const TypeKind type, const int pointer_level, int array_size) {
     if (local_var_count >= local_var_capacity) {
         local_var_capacity = local_var_capacity == 0 ? 16 : local_var_capacity * 2;
         local_vars = realloc(local_vars, sizeof(CodegenSymbol) * local_var_capacity);
@@ -33,6 +34,7 @@ static void add_local_var(const char *name, const LLVMValueRef value, const Type
     local_vars[local_var_count].value = value;
     local_vars[local_var_count].type = type;
     local_vars[local_var_count].pointer_level = pointer_level;
+    local_vars[local_var_count].array_size = array_size;
     local_var_count++;
 }
 
@@ -132,13 +134,27 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
             return str_const;
         }
         case EXPR_VAR: {
-            const LLVMValueRef var = lookup_local_var(expr->text);
-            if (!var) {
+            CodegenSymbol *sym = lookup_local_var_full(expr->text);
+            if (!sym) {
                 fprintf(stderr, "Codegen error: undefined variable '%s'\n", expr->text);
                 exit(1);
             }
 
-            // Load with the correct type including pointer level
+            LLVMValueRef var = sym->value;
+
+            // If it is a stack array, decay to pointer to first element
+            if (sym->array_size > 0) {
+                LLVMTypeRef element_type = get_llvm_type_with_pointers(sym->type, sym->pointer_level - 1);
+                LLVMTypeRef array_type = LLVMArrayType(element_type, sym->array_size);
+
+                LLVMValueRef indices[2];
+                indices[0] = LLVMConstInt(LLVMInt32TypeInContext(context), 0, 0);
+                indices[1] = LLVMConstInt(LLVMInt32TypeInContext(context), 0, 0);
+
+                return LLVMBuildGEP2(builder, array_type, var, indices, 2, "arraydecay");
+            }
+
+            // Normal variable: Load with the correct type including pointer level
             LLVMTypeRef var_type = get_llvm_type_with_pointers(expr->type, expr->pointer_level);
             return LLVMBuildLoad2(builder, var_type, var, "loadtmp");
         }
@@ -179,11 +195,11 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
                     if (LLVMGetTypeKind(left_type) == LLVMPointerTypeKind) {
                         // Pointer + integer: use GEP
                         // Use i8 as the element type for pointer arithmetic
-                        LLVMTypeRef i8_type = LLVMInt8TypeInContext(LLVMGetGlobalContext());
+                        LLVMTypeRef i8_type = LLVMInt8TypeInContext(context);
                         return LLVMBuildGEP2(builder, i8_type, left, &right, 1, "addtmp");
                     } else if (LLVMGetTypeKind(right_type) == LLVMPointerTypeKind) {
                         // Integer + pointer: use GEP
-                        LLVMTypeRef i8_type = LLVMInt8TypeInContext(LLVMGetGlobalContext());
+                        LLVMTypeRef i8_type = LLVMInt8TypeInContext(context);
                         return LLVMBuildGEP2(builder, i8_type, right, &left, 1, "addtmp");
                     } else {
                         // Regular integer addition
@@ -211,15 +227,65 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
                     LLVMValueRef lhs_ptr;
 
                     if (expr->binop.left->kind == EXPR_VAR) {
+                        // Assigning to a variable: x = 5
                         lhs_ptr = lookup_local_var(expr->binop.left->text);
                         if (!lhs_ptr) {
                             fprintf(stderr, "Assignment to undefined variable '%s'\n", expr->binop.left->text);
                             exit(1);
                         }
                     } else if (expr->binop.left->kind == EXPR_UNARY && expr->binop.left->unary.op == UNARY_DEREF) {
-                        // Dereferenced pointer assignment (*ptr = value)
+                        // Dereferenced pointer assignment: *ptr = value
                         // Just get the pointer value (don't load from it)
                         lhs_ptr = codegen_expression(expr->binop.left->unary.operand);
+                    } else if (expr->binop.left->kind == EXPR_ARRAY_INDEX) {
+                        // Array element assignment: arr[i] = value
+                        // We need to compute the element pointer without loading the value
+
+                        ExprNode *array_expr = expr->binop.left->array_index.array;
+                        ExprNode *index_expr = expr->binop.left->array_index.index;
+
+                        LLVMValueRef array_ptr;
+
+                        if (array_expr->kind == EXPR_VAR) {
+                            array_ptr = lookup_local_var(array_expr->text);
+                            if (!array_ptr) {
+                                fprintf(stderr, "Codegen error: undefined array variable '%s'\n",
+                                        array_expr->text);
+                                exit(1);
+                            }
+                        } else {
+                            array_ptr = codegen_expression(array_expr);
+                        }
+
+                        LLVMValueRef index_val = codegen_expression(index_expr);
+
+                        LLVMTypeRef element_type = get_llvm_type_with_pointers(
+                            expr->binop.left->type,
+                            expr->binop.left->pointer_level
+                        );
+
+                        // Check if this is an actual array or a pointer
+                        CodegenSymbol *sym = NULL;
+                        if (array_expr->kind == EXPR_VAR) {
+                            sym = lookup_local_var_full(array_expr->text);
+                        }
+
+                        if (sym && sym->array_size > 0) {
+                            // Actual array - use two-index GEP
+                            // Reconstruct array type [Size x ElementType]
+                            LLVMTypeRef base_element_type = get_llvm_type_with_pointers(sym->type, sym->pointer_level - 1);
+                            LLVMTypeRef array_type = LLVMArrayType(base_element_type, sym->array_size);
+
+                            LLVMValueRef indices[2];
+                            indices[0] = LLVMConstInt(LLVMInt32TypeInContext(context), 0, 0);
+                            indices[1] = index_val;
+                            lhs_ptr = LLVMBuildGEP2(builder, array_type, array_ptr, indices, 2, "arrayidx");
+                        } else {
+                            // Pointer - load then single-index GEP
+                            LLVMTypeRef ptr_type = get_llvm_type_with_pointers(array_expr->type, array_expr->pointer_level);
+                            LLVMValueRef loaded_ptr = LLVMBuildLoad2(builder, ptr_type, array_ptr, "loadptr");
+                            lhs_ptr = LLVMBuildGEP2(builder, element_type, loaded_ptr, &index_val, 1, "arrayidx");
+                        }
                     } else {
                         fprintf(stderr, "Invalid lvalue in assignment\n");
                         exit(1);
@@ -254,21 +320,9 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
         }
         case EXPR_UNARY: {
             if (expr->unary.op == UNARY_DEREF) {
-                LLVMValueRef ptr;
-
-                if (expr->unary.operand->kind == EXPR_VAR) {
-                    // Load the pointer from the variable
-                    LLVMValueRef var = lookup_local_var(expr->unary.operand->text);
-                    if (!var) {
-                        fprintf(stderr, "Codegen error: undefined variable '%s'\n", expr->unary.operand->text);
-                        exit(1);
-                    }
-
-                    LLVMTypeRef ptr_type = get_llvm_type_with_pointers(expr->unary.operand->type, expr->unary.operand->pointer_level);
-                    ptr = LLVMBuildLoad2(builder, ptr_type, var, "loadptr");
-                } else {
-                    ptr = codegen_expression(expr->unary.operand);
-                }
+                // Evaluate the operand to get the pointer value.
+                // Note: For EXPR_VAR referring to an array, this correctly returns the decayed pointer.
+                LLVMValueRef ptr = codegen_expression(expr->unary.operand);
 
                 LLVMTypeRef deref_type = get_llvm_type_with_pointers(expr->type, expr->pointer_level);
                 return LLVMBuildLoad2(builder, deref_type, ptr, "deref");
@@ -278,7 +332,69 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
                 if (expr->unary.operand->kind == EXPR_VAR) {
                     // Return the pointer to the variable (don't load it)
                     return lookup_local_var(expr->unary.operand->text);
+                } else if (expr->unary.operand->kind == EXPR_ARRAY_INDEX) {
+                    // Taking address of array element: &arr[i]
+                    // We need to compute the element pointer without loading the value
+
+                    ExprNode *array_expr = expr->unary.operand->array_index.array;
+                    ExprNode *index_expr = expr->unary.operand->array_index.index;
+
+                    LLVMValueRef array_ptr;
+
+                    if (array_expr->kind == EXPR_VAR) {
+                        array_ptr = lookup_local_var(array_expr->text);
+                        if (!array_ptr) {
+                            fprintf(stderr, "Codegen error: undefined array variable '%s'\n",
+                                    array_expr->text);
+                            exit(1);
+                        }
+                    } else {
+                        // array_ptr here is the alloca (value)
+                        // Should probably be handled? But context above suggests logic for simple vars.
+                        // For EXPR_ARRAY_INDEX on non-var, we probably can't take address easily unless it's an lvalue
+                    }
+
+                    LLVMValueRef index_val = codegen_expression(index_expr);
+
+                    LLVMTypeRef element_type = get_llvm_type_with_pointers(
+                        expr->unary.operand->type,
+                        expr->unary.operand->pointer_level
+                    );
+
+                    // Check if this is an actual array or a pointer
+                    CodegenSymbol *sym = NULL;
+                    if (array_expr->kind == EXPR_VAR) {
+                        sym = lookup_local_var_full(array_expr->text);
+                    }
+
+                    LLVMValueRef element_ptr;
+
+                    if (sym && sym->array_size > 0) {
+                        // Actual array - use two-index GEP
+                        LLVMTypeRef base_element_type = get_llvm_type_with_pointers(sym->type, sym->pointer_level - 1);
+                        LLVMTypeRef array_type = LLVMArrayType(base_element_type, sym->array_size);
+
+                        LLVMValueRef indices[2];
+                        indices[0] = LLVMConstInt(LLVMInt32TypeInContext(context), 0, 0);
+                        indices[1] = index_val;
+                        element_ptr = LLVMBuildGEP2(builder, array_type, array_ptr, indices, 2, "arrayaddr");
+                    } else {
+                        // Pointer - load then single-index GEP
+                        LLVMTypeRef ptr_type = get_llvm_type_with_pointers(array_expr->type, array_expr->pointer_level);
+                        LLVMValueRef loaded_ptr = LLVMBuildLoad2(builder, ptr_type, array_ptr, "loadptr");
+                        element_ptr = LLVMBuildGEP2(builder, element_type, loaded_ptr, &index_val, 1, "arrayaddr");
+                    }
+
+                    // Return the pointer (don't load the value)
+                    return element_ptr;
+                } else if (expr->unary.operand->kind == EXPR_UNARY && expr->unary.operand->unary.op == UNARY_DEREF) {
+                    // Taking address of dereferenced pointer: &(*ptr)
+                    // This just evaluates to the pointer itself
+                    return codegen_expression(expr->unary.operand->unary.operand);
                 }
+
+                fprintf(stderr, "Codegen error: cannot take address of this expression\n");
+                exit(1);
             }
 
             // For other unary ops, evaluate the operand normally
@@ -322,6 +438,55 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
 
             free(args);
             return result;
+        }
+        case EXPR_ARRAY_INDEX: {
+            LLVMValueRef array_ptr;
+
+            if (expr->array_index.array->kind == EXPR_VAR) {
+                // if it's a variable, get its pointer (don't load it yet)
+                array_ptr = lookup_local_var(expr->array_index.array->text);
+                if (!array_ptr) {
+                    fprintf(stderr, "Codegen error: undefined array variable '%s'\n",
+                            expr->array_index.array->text);
+                    exit(1);
+                }
+            } else {
+                // for other expressions (like nested array access: arr[i][j])
+                array_ptr = codegen_expression(expr->array_index.array);
+            }
+
+            LLVMValueRef index_val = codegen_expression(expr->array_index.index);
+            LLVMTypeRef element_type = get_llvm_type_with_pointers(expr->type, expr->pointer_level);
+
+            // for arrays declared as int[N], we need two indices: [0, index]
+            // for pointers (int*), we need one index: [index]
+            LLVMValueRef indices[2];
+            LLVMValueRef element_ptr;
+
+            // check if this is an array (allocated with alloca) or a pointer
+            CodegenSymbol *sym = NULL;
+            if (expr->array_index.array->kind == EXPR_VAR) {
+                sym = lookup_local_var_full(expr->array_index.array->text);
+            }
+
+            if (sym && sym->array_size > 0) {
+                // this is an actual array (pointer_level was increased during allocation)
+                // use two-index GEP: first index 0 to get array start, second is actual index
+                LLVMTypeRef base_element_type = get_llvm_type_with_pointers(sym->type, sym->pointer_level - 1);
+                LLVMTypeRef array_type = LLVMArrayType(base_element_type, sym->array_size);
+
+                indices[0] = LLVMConstInt(LLVMInt32TypeInContext(context), 0, 0);
+                indices[1] = index_val;
+
+                element_ptr = LLVMBuildGEP2(builder, array_type, array_ptr, indices, 2, "arrayidx");
+            } else {
+                LLVMTypeRef ptr_type = get_llvm_type_with_pointers(expr->array_index.array->type, expr->array_index.array->pointer_level);
+                LLVMValueRef loaded_ptr = LLVMBuildLoad2(builder, ptr_type, array_ptr, "loadptr");
+                element_ptr = LLVMBuildGEP2(builder, element_type, loaded_ptr, &index_val, 1, "arrayidx");
+            }
+
+            // Load the value from the computed address
+            return LLVMBuildLoad2(builder, element_type, element_ptr, "arrayval");
         }
         default: {
             fprintf(stderr, "Unsupported expression kind: %d\n", expr->kind);
@@ -435,21 +600,39 @@ static void codegen_statement(const StmtNode* stmt) {
 
             if (init_stmt && init_stmt->kind == STMT_VAR_DECL) {
                 // Allocate the variable in the current block (before loop)
-                LLVMTypeRef var_type = get_llvm_type_with_pointers(
-                    init_stmt->var_decl.type,
-                    init_stmt->var_decl.pointer_level
-                );
-                init_alloca = LLVMBuildAlloca(builder, var_type, init_stmt->var_decl.name);
-                add_local_var(init_stmt->var_decl.name, init_alloca, init_stmt->var_decl.type, init_stmt->var_decl.pointer_level);
+                LLVMTypeRef var_type;
+
+                if (init_stmt->var_decl.array_size > 0) {
+                    LLVMTypeRef element_type = get_llvm_type_with_pointers(
+                       init_stmt->var_decl.type,
+                       init_stmt->var_decl.pointer_level
+                    );
+                    var_type = LLVMArrayType(element_type, init_stmt->var_decl.array_size);
+
+                    init_alloca = LLVMBuildAlloca(builder, var_type, init_stmt->var_decl.name);
+                    // Note: Arrays decay to pointers, so store with pointer_level + 1
+                    add_local_var(init_stmt->var_decl.name, init_alloca, init_stmt->var_decl.type, init_stmt->var_decl.pointer_level + 1, init_stmt->var_decl.array_size);
+                } else {
+                    var_type = get_llvm_type_with_pointers(
+                       init_stmt->var_decl.type,
+                       init_stmt->var_decl.pointer_level
+                    );
+                    init_alloca = LLVMBuildAlloca(builder, var_type, init_stmt->var_decl.name);
+                    add_local_var(init_stmt->var_decl.name, init_alloca, init_stmt->var_decl.type, init_stmt->var_decl.pointer_level, 0);
+                }
 
                 // Initialize the variable if there's an initializer
                 if (init_stmt->var_decl.initializer) {
+                    if (init_stmt->var_decl.array_size > 0) {
+                        fprintf(stderr, "Array initializers not yet supported in for-loop\n");
+                        exit(1);
+                    }
+
                     LLVMValueRef init_val = codegen_expression(init_stmt->var_decl.initializer);
                     if (init_stmt->var_decl.pointer_level == 0) {
-                        init_val = convert_to_type(init_val,
-                            init_stmt->var_decl.initializer->type,
-                            init_stmt->var_decl.type);
+                        init_val = convert_to_type(init_val, init_stmt->var_decl.initializer->type, init_stmt->var_decl.type);
                     }
+
                     LLVMBuildStore(builder, init_val, init_alloca);
                 }
             } else if (init_stmt) {
@@ -722,29 +905,59 @@ static void codegen_statement(const StmtNode* stmt) {
             break;
         }
         case STMT_VAR_DECL: {
-            LLVMTypeRef var_type = get_llvm_type_with_pointers(stmt->var_decl.type, stmt->var_decl.pointer_level);
-
-            // Check if variable already exists at this scope level
-            // For now, just don't re-allocate if it exists
-            LLVMValueRef existing = lookup_local_var(stmt->var_decl.name);
             LLVMValueRef alloca;
+            LLVMTypeRef var_type;
 
-            if (existing) {
-                // Variable already allocated (happens with for loop vars in nested loops)
-                alloca = existing;
-            } else {
-                alloca = LLVMBuildAlloca(builder, var_type, stmt->var_decl.name);
-                add_local_var(stmt->var_decl.name, alloca, stmt->var_decl.type, stmt->var_decl.pointer_level);
-            }
+            if (stmt->var_decl.array_size > 0) {
+                // Array declaration: int[5] arr;
+                LLVMTypeRef element_type = get_llvm_type_with_pointers(
+                    stmt->var_decl.type,
+                    stmt->var_decl.pointer_level
+                );
+                var_type = LLVMArrayType(element_type, stmt->var_decl.array_size);
 
-            if (stmt->var_decl.initializer) {
-                LLVMValueRef init_val = codegen_expression(stmt->var_decl.initializer);
+                // Check if variable already exists at this scope level
+                LLVMValueRef existing = lookup_local_var(stmt->var_decl.name);
 
-                if (stmt->var_decl.pointer_level == 0) {
-                    init_val = convert_to_type(init_val, stmt->var_decl.initializer->type, stmt->var_decl.type);
+                if (existing) {
+                    alloca = existing;
+                } else {
+                    alloca = LLVMBuildAlloca(builder, var_type, stmt->var_decl.name);
+                    // Arrays decay to pointers, so we store them with pointer_level + 1
+                    // Track array_size for proper GEP generation later
+                    add_local_var(stmt->var_decl.name, alloca, stmt->var_decl.type, stmt->var_decl.pointer_level + 1, stmt->var_decl.array_size);
                 }
 
-                LLVMBuildStore(builder, init_val, alloca);
+                // Array initializer support (if provided)
+                if (stmt->var_decl.initializer) {
+                    // For now, we'll handle simple cases
+                    // You could extend this to handle initializer lists
+                    fprintf(stderr, "Array initializers not yet supported\n");
+                    exit(1);
+                }
+            } else {
+                // Regular variable declaration
+                var_type = get_llvm_type_with_pointers(stmt->var_decl.type, stmt->var_decl.pointer_level);
+
+                // Check if variable already exists at this scope level
+                LLVMValueRef existing = lookup_local_var(stmt->var_decl.name);
+
+                if (existing) {
+                    alloca = existing;
+                } else {
+                    alloca = LLVMBuildAlloca(builder, var_type, stmt->var_decl.name);
+                    add_local_var(stmt->var_decl.name, alloca, stmt->var_decl.type, stmt->var_decl.pointer_level, 0);
+                }
+
+                if (stmt->var_decl.initializer) {
+                    LLVMValueRef init_val = codegen_expression(stmt->var_decl.initializer);
+
+                    if (stmt->var_decl.pointer_level == 0) {
+                        init_val = convert_to_type(init_val, stmt->var_decl.initializer->type, stmt->var_decl.type);
+                    }
+
+                    LLVMBuildStore(builder, init_val, alloca);
+                }
             }
 
             break;
@@ -781,7 +994,7 @@ static void codegen_function(const FunctionNode* func) {
     }
 
     // function type
-    const LLVMTypeRef ret_type = get_llvm_type(func->return_type);
+    const LLVMTypeRef ret_type = get_llvm_type_with_pointers(func->return_type, func->return_pointer_level);
     const LLVMTypeRef func_type = LLVMFunctionType(ret_type, param_types, func->param_count, 0);
 
     const LLVMValueRef llvm_func = LLVMAddFunction(module, func->name, func_type);
@@ -800,7 +1013,7 @@ static void codegen_function(const FunctionNode* func) {
         LLVMValueRef alloca = LLVMBuildAlloca(builder, param_type, func->params[i].name);
         LLVMBuildStore(builder, param, alloca);
 
-        add_local_var(func->params[i].name, alloca, func->params[i].type, func->params[i].pointer_level);
+        add_local_var(func->params[i].name, alloca, func->params[i].type, func->params[i].pointer_level, 0);
     }
 
     codegen_statement(func->body);
@@ -808,7 +1021,7 @@ static void codegen_function(const FunctionNode* func) {
     // Add default return if block is not terminated
     LLVMBasicBlockRef current_block = LLVMGetInsertBlock(builder);
     if (!LLVMGetBasicBlockTerminator(current_block)) {
-        if (func->return_type == TYPE_VOID) {
+        if (func->return_type == TYPE_VOID && func->return_pointer_level == 0) {
             LLVMBuildRetVoid(builder);
         } else {
             // Return default value (0 for int, nullptr for pointers, etc.)

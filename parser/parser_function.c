@@ -15,7 +15,7 @@ static TypeKind token_to_typekind(const TokenType token) {
         case TOK_BOOL: return TYPE_BOOLEAN;
         case TOK_VOID: return TYPE_VOID;
         default: {
-            fprintf(stderr, "invalid function type token: %s\n", token_type_to_string(token));
+            fprintf(stderr, "invalid type token: %s\n", token_type_to_string(token));
             exit(1);
         }
     }
@@ -78,6 +78,12 @@ FunctionNode* parse_function(void) {
     const TypeKind return_type = token_to_typekind(type_token.type);
     advance();
 
+    int return_pointer_level = 0;
+    while (current_token().type == TOK_ASTERISK) {
+        return_pointer_level++;
+        advance();
+    }
+
     const Token name_token = current_token();
     expect(TOK_IDENTIFIER);
 
@@ -92,9 +98,11 @@ FunctionNode* parse_function(void) {
     FunctionNode* func = malloc(sizeof(FunctionNode));
     func->name = strdup(name_token.lexeme);
     func->return_type = return_type;
+    func->return_pointer_level = return_pointer_level;
     func->params = params;
     func->param_count = param_count;
     func->body = body;
+    func->location = type_token.location;
 
     return func;
 }

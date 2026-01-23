@@ -164,11 +164,7 @@ StmtNode* parse_asm_stmt(void) {
         if (current_token().type != TOK_COLON && current_token().type != TOK_RPAREN) {
             // parse output operands
             while (current_token().type != TOK_COLON && current_token().type != TOK_RPAREN && current_token().type != TOK_EOF) {
-
-                // expect string literal for constraint
-                if (current_token().type != TOK_STRING_LITERAL) {
-                    report_error(current_token().location, "Expected constraint string for output operand");
-                }
+                if (current_token().type != TOK_STRING_LITERAL) report_error(current_token().location, "Expected output constraint");
                 char *constraint = strdup(current_token().lexeme);
                 advance();
 
@@ -180,12 +176,7 @@ StmtNode* parse_asm_stmt(void) {
                 vector_push(&output_constraints, &constraint);
 
                 expect(TOK_RPAREN);
-
-                if (current_token().type == TOK_COMMA) {
-                    advance();
-                } else {
-                    break;
-                }
+                if (current_token().type == TOK_COMMA) advance(); else break;
             }
         }
     }
@@ -198,11 +189,7 @@ StmtNode* parse_asm_stmt(void) {
         if (current_token().type != TOK_COLON && current_token().type != TOK_RPAREN) {
             // parse input operands
             while (current_token().type != TOK_COLON && current_token().type != TOK_RPAREN && current_token().type != TOK_EOF) {
-
-                // expect string literal for constraint
-                if (current_token().type != TOK_STRING_LITERAL) {
-                    report_error(current_token().location, "Expected constraint string for input operand");
-                }
+                if (current_token().type != TOK_STRING_LITERAL) report_error(current_token().location, "Expected input constraint");
                 char *constraint = strdup(current_token().lexeme);
                 advance();
 
@@ -213,12 +200,7 @@ StmtNode* parse_asm_stmt(void) {
                 vector_push(&input_constraints, &constraint);
 
                 expect(TOK_RPAREN);
-
-                if (current_token().type == TOK_COMMA) {
-                    advance();
-                } else {
-                    break;
-                }
+                if (current_token().type == TOK_COMMA) advance(); else break;
             }
         }
     }
@@ -230,7 +212,7 @@ StmtNode* parse_asm_stmt(void) {
         // parse clobber list
         while (current_token().type != TOK_RPAREN && current_token().type != TOK_EOF) {
             if (current_token().type != TOK_STRING_LITERAL) {
-                report_error(current_token().location, "Expected clobber string");
+                report_error(current_token().location, "Expected clobber");
             }
 
             char *clobber = strdup(current_token().lexeme);
@@ -271,6 +253,18 @@ StmtNode* parse_var_decl(void) {
     const TypeKind type = token_to_typekind(type_tok.type);
     advance();
 
+    int array_size = 0;
+    if (current_token().type == TOK_LSQUARE) {
+        advance();
+        if (current_token().type == TOK_NUMBER) {
+            array_size = atoi(current_token().lexeme);
+            advance();
+        } else {
+            report_error(current_token().location, "Expected array size");
+        }
+        expect(TOK_RSQUARE);
+    }
+
     int pointer_level = 0;
     while (current_token().type == TOK_ASTERISK) {
         pointer_level++;
@@ -296,6 +290,7 @@ StmtNode* parse_var_decl(void) {
     stmt->location = loc;
     stmt->var_decl.type = type;
     stmt->var_decl.pointer_level = pointer_level;
+    stmt->var_decl.array_size = array_size;
     stmt->var_decl.name = strdup(name_token.lexeme);
     stmt->var_decl.initializer = initializer;
 
@@ -339,7 +334,6 @@ StmtNode* parse_compound_stmt(void) {
 
 StmtNode* parse_statement(void) {
     const Token t = current_token();
-
     if (t.type == TOK_RETURN) return parse_return_stmt();
     if (t.type == TOK_IF) return parse_if_stmt();
     if (t.type == TOK_WHILE) return parse_while_stmt();
@@ -347,17 +341,9 @@ StmtNode* parse_statement(void) {
     if (t.type == TOK_BREAK) return parse_break_stmt();
     if (t.type == TOK_CONTINUE) return parse_continue_stmt();
     if (t.type == TOK_ASM) return parse_asm_stmt();
-
-    // variable declaration (starts with type)
-    if (t.type == TOK_INT || t.type == TOK_LONG || t.type == TOK_CHAR || t.type == TOK_FLOAT || t.type == TOK_DOUBLE || t.type == TOK_STRING_KW || t.type == TOK_BOOL || t.type == TOK_VOID) {
+    if (t.type == TOK_INT || t.type == TOK_LONG || t.type == TOK_CHAR || t.type == TOK_FLOAT || t.type == TOK_DOUBLE || t.type == TOK_STRING_KW ||  t.type == TOK_BOOL || t.type == TOK_VOID) {
         return parse_var_decl();
     }
-
-    // compound statement
-    if (t.type == TOK_LBRACE) {
-        return parse_compound_stmt();
-    }
-
-    // assume expression statement
+    if (t.type == TOK_LBRACE) return parse_compound_stmt();
     return parse_expr_stmt();
 }

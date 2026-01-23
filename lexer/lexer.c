@@ -49,6 +49,8 @@ static char *P_LPAREN = "(";
 static char *P_RPAREN = ")";
 static char *P_LBRACE = "{";
 static char *P_RBRACE = "}";
+static char *P_LSQUARE = "[";
+static char *P_RSQUARE = "]";
 static char *P_COMMA  = ",";
 static char *P_COLON  = ":";
 static char *P_SEMI   = ";";
@@ -303,6 +305,8 @@ static Token lex_operator_or_punct(FILE *f, const int c) {
         case ')': return (Token){TOK_RPAREN, P_RPAREN, loc};
         case '{': return (Token){TOK_LBRACE, P_LBRACE, loc};
         case '}': return (Token){TOK_RBRACE, P_RBRACE, loc};
+        case '[': return (Token){TOK_LSQUARE, P_LSQUARE, loc};
+        case ']': return (Token){TOK_RSQUARE, P_RSQUARE, loc};
         case ':': return (Token){TOK_COLON, P_COLON, loc};
         case ',': return (Token){TOK_COMMA, P_COMMA, loc};
         case ';': return (Token){TOK_SEMI, P_SEMI, loc};

@@ -64,6 +64,9 @@ typedef enum {
     TOK_LBRACE,
     TOK_RBRACE,
 
+    TOK_LSQUARE,
+    TOK_RSQUARE,
+
     TOK_ARROW,
     TOK_DOT,
 

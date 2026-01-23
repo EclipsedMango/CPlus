@@ -58,6 +58,7 @@ typedef struct ExprNode {
         EXPR_BINOP,
         EXPR_UNARY,
         EXPR_CALL,
+        EXPR_ARRAY_INDEX,
     } kind;
     SourceLocation location;
     TypeKind type;
@@ -78,6 +79,10 @@ typedef struct ExprNode {
             struct ExprNode **args;
             int arg_count;
         } call;
+        struct {
+            struct ExprNode *array;
+            struct ExprNode *index;
+        } array_index;
     };
 } ExprNode;
 
@@ -117,6 +122,7 @@ typedef struct StmtNode {
         struct {
             TypeKind type;
             int pointer_level;
+            int array_size;
             char *name;
             ExprNode *initializer;  // nullptr if no initializer
         } var_decl;
@@ -151,6 +157,7 @@ typedef struct ParamNode {
 typedef struct FunctionNode {
     char *name;
     TypeKind return_type;
+    int return_pointer_level;
     SourceLocation location;
     ParamNode *params;
     int param_count;
