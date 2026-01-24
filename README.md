@@ -10,7 +10,7 @@ The syntax of **C+** is similar to C, but it includes features like:
 - And much more to come!
 
 -----
-#### *⚠️ Warning*
+### Warning!!!
 This project is a **work in progress!** Currently supported features:
 - Function declarations and calls
 - Variable declarations with initizlization
