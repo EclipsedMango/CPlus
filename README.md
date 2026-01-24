@@ -26,6 +26,8 @@ This project is a **work in progress!** Currently supported features:
 - string, long, int, char, float, double, bool and void types
 - comments
 - arrays and arrays decaying to pointers
+- scope defined variables and global variables
+- const keyword, that makes variables immutable
 
 -----
 ### Getting started
