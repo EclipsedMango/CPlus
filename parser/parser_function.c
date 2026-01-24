@@ -37,6 +37,12 @@ static void parse_parameter_list(ParamNode **params_out, int *count_out) {
 
     // parse first parameter
     do {
+        int param_is_const = 0;
+        if (current_token().type == TOK_CONST) {
+            param_is_const = 1;
+            advance();
+        }
+
         const Token type_tok = current_token();
         const TypeKind type = token_to_typekind(type_tok.type);
         advance();
@@ -54,6 +60,7 @@ static void parse_parameter_list(ParamNode **params_out, int *count_out) {
             .type = type,
             .pointer_level = point_level,
             .name = strdup(name_tok.lexeme),
+            .is_const = param_is_const,
             .location = type_tok.location
         };
         vector_push(&params, &p);

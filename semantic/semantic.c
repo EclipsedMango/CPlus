@@ -223,6 +223,13 @@ static void analyze_expression(ExprNode* expr, Scope* scope) {
                     report_error(expr->location, "Left-hand side of assignment must be a variable, dereferenced pointer, or array element.");
                 }
 
+                if (expr->binop.left->kind == EXPR_VAR) {
+                    Symbol* sym = scope_lookup_recursive(scope, expr->binop.left->text);
+                    if (sym && sym->is_const) {
+                        report_error(expr->location, "Cannot assign to const variable '%s'", expr->binop.left->text);
+                    }
+                }
+
                 if (!types_compatible_with_pointers(lhs, expr->binop.left->pointer_level, rhs, expr->binop.right->pointer_level)) {
                     report_error(expr->location, "Type mismatch in assignment. Cannot assign '%s%s' to '%s%s'.",
                         type_to_str(rhs), expr->binop.right->pointer_level > 0 ? "*" : "",
@@ -401,6 +408,7 @@ static bool analyze_statement(const StmtNode* stmt, Scope* scope, const TypeKind
             sym->name = strdup(stmt->var_decl.name);
             sym->kind = SYM_VARIABLE;
             sym->type = stmt->var_decl.type;
+            sym->is_const = stmt->var_decl.is_const;
 
             if (stmt->var_decl.array_size > 0) {
                 sym->pointer_level = stmt->var_decl.pointer_level + 1;

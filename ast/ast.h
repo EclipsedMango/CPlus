@@ -125,6 +125,7 @@ typedef struct StmtNode {
             int array_size;
             char *name;
             ExprNode *initializer;  // nullptr if no initializer
+            int is_const;
         } var_decl;
         struct {
             ExprNode *expr;
@@ -162,6 +163,7 @@ typedef struct ParamNode {
     int pointer_level;
     SourceLocation location;
     char *name;
+    int is_const;
 } ParamNode;
 
 typedef struct FunctionNode {

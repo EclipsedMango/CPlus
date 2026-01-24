@@ -247,6 +247,12 @@ StmtNode* parse_asm_stmt(void) {
 }
 
 StmtNode* parse_var_decl(void) {
+    int is_const = 0;
+    if (current_token().type == TOK_CONST) {
+        is_const = 1;
+        advance();
+    }
+
     // read and convert type
     const Token type_tok = current_token();
     const SourceLocation loc = type_tok.location;
@@ -293,6 +299,7 @@ StmtNode* parse_var_decl(void) {
     stmt->var_decl.array_size = array_size;
     stmt->var_decl.name = strdup(name_token.lexeme);
     stmt->var_decl.initializer = initializer;
+    stmt->var_decl.is_const = is_const;
 
     return stmt;
 }
@@ -341,7 +348,7 @@ StmtNode* parse_statement(void) {
     if (t.type == TOK_BREAK) return parse_break_stmt();
     if (t.type == TOK_CONTINUE) return parse_continue_stmt();
     if (t.type == TOK_ASM) return parse_asm_stmt();
-    if (t.type == TOK_INT || t.type == TOK_LONG || t.type == TOK_CHAR || t.type == TOK_FLOAT || t.type == TOK_DOUBLE || t.type == TOK_STRING_KW ||  t.type == TOK_BOOL || t.type == TOK_VOID) {
+    if (t.type == TOK_CONST || t.type == TOK_INT || t.type == TOK_LONG || t.type == TOK_CHAR || t.type == TOK_FLOAT || t.type == TOK_DOUBLE || t.type == TOK_STRING_KW ||  t.type == TOK_BOOL || t.type == TOK_VOID) {
         return parse_var_decl();
     }
     if (t.type == TOK_LBRACE) return parse_compound_stmt();

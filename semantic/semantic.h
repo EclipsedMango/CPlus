@@ -13,6 +13,7 @@ typedef struct Symbol {
     } kind;
     TypeKind type;
     int pointer_level;
+    int is_const;
     SourceLocation location;
 } Symbol;
 
