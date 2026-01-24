@@ -147,6 +147,16 @@ typedef struct StmtNode {
     };
 } StmtNode;
 
+typedef struct GlobalVarNode {
+    TypeKind kind;
+    int pointer_level;
+    int array_size;
+    char *name;
+    ExprNode *initializer;
+    bool is_const;
+    SourceLocation location;
+} GlobalVarNode;
+
 typedef struct ParamNode {
     TypeKind type;
     int pointer_level;
@@ -167,6 +177,8 @@ typedef struct FunctionNode {
 typedef struct ProgramNode {
     FunctionNode **functions;
     int function_count;
+    GlobalVarNode **globals;
+    int global_count;
 } ProgramNode;
 
 #endif //C__AST_H

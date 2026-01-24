@@ -34,6 +34,9 @@ int** get_ptr_ptr(int** p) {
     return p;
 }
 
+int counter = 0;
+void increment() { counter = counter + 1; }
+
 int main() {
     print("Hello world!\n");
 
@@ -242,9 +245,6 @@ int main() {
     if (outer_count != 3) { status = 24; }
     if (inner_count != 6) { status = 25; }
 
-    // ========== ARRAY TESTS ==========
-
-    // Test 28: Basic array declaration and indexing
     int[5] arr1;
     arr1[0] = 10;
     arr1[1] = 20;
@@ -256,16 +256,13 @@ int main() {
     if (arr1[2] != 30) { status = 28; }
     if (arr1[4] != 50) { status = 28; }
 
-    // Test 29: Array with variable index
     int idx = 2;
     int val_at_idx = arr1[idx];
     if (val_at_idx != 30) { status = 29; }
 
-    // Test 30: Modify array through variable index
     arr1[idx] = 99;
     if (arr1[2] != 99) { status = 30; }
 
-    // Test 31: Array in loop
     int[10] arr2;
     for (int i = 0; i < 10; i = i + 1) {
         arr2[i] = i * 2;
@@ -275,32 +272,26 @@ int main() {
     if (arr2[5] != 10) { status = 31; }
     if (arr2[9] != 18) { status = 31; }
 
-    // Test 32: Sum array elements
     int arr_sum = 0;
     for (int i = 0; i < 10; i = i + 1) {
         arr_sum = arr_sum + arr2[i];
     }
-    // Sum of 0+2+4+6+8+10+12+14+16+18 = 90
     if (arr_sum != 90) { status = 32; }
 
-    // Test 33: Array with expression as index
     int base = 3;
     int offset = 2;
     int[10] arr3;
     arr3[base + offset] = 777;
     if (arr3[5] != 777) { status = 33; }
 
-    // Test 34: Pointer to array element
     int[5] arr4;
     arr4[2] = 123;
     int* ptr_to_elem = &arr4[2];
     if (*ptr_to_elem != 123) { status = 34; }
 
-    // Test 35: Modify array through pointer
     *ptr_to_elem = 456;
     if (arr4[2] != 456) { status = 35; }
 
-    // Test 36: Array arithmetic
     int[3] arr5;
     arr5[0] = 5;
     arr5[1] = 10;
@@ -308,7 +299,6 @@ int main() {
     int total = arr5[0] + arr5[1] + arr5[2];
     if (total != 30) { status = 36; }
 
-    // Test 37: Char array (string-like)
     char[6] char_arr;
     char_arr[0] = 72;  // 'H'
     char_arr[1] = 101; // 'e'
@@ -320,14 +310,12 @@ int main() {
     if (char_arr[0] != 72) { status = 37; }
     if (char_arr[4] != 111) { status = 37; }
 
-    // Test 38: Array assignment chain
     int[3] arr6;
     arr6[0] = 1;
     arr6[1] = arr6[0] + 1;
     arr6[2] = arr6[1] + 1;
     if (arr6[2] != 3) { status = 38; }
 
-    // Test 39: Swap array elements
     int[2] swap_arr;
     swap_arr[0] = 100;
     swap_arr[1] = 200;
@@ -337,7 +325,6 @@ int main() {
     if (swap_arr[0] != 200) { status = 39; }
     if (swap_arr[1] != 100) { status = 39; }
 
-    // Test 40: Find max in array
     int[5] max_arr;
     max_arr[0] = 15;
     max_arr[1] = 42;
@@ -357,6 +344,13 @@ int main() {
     coooool[0] = 100;
     int* aaaa = coooool;
     if (*aaaa != 100) { status = 41; }
+
+    int* abcd = &coooool[0];
+    abcd[2] = 69;
+    if (abcd[2] != 69) { status = 42; }
+
+	increment();
+	if (counter != 1) { status = 43; }
 
     return status;
 }

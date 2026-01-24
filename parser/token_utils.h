@@ -4,7 +4,7 @@
 #include "../lexer/lexer.h"
 
 // how many tokens of lookahead we keep
-#define TOKEN_BUFFER_SIZE 5
+#define TOKEN_BUFFER_SIZE 50
 
 // initialization
 void set_current_file(FILE *f);

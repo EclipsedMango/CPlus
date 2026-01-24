@@ -16,6 +16,7 @@ typedef enum {
     TOK_BOOL,
 
     TOK_VOID,
+    TOK_CONST,
 
     TOK_RETURN,
     TOK_IF,

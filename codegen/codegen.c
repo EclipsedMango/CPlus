@@ -21,6 +21,10 @@ static CodegenSymbol *local_vars = NULL;
 static int local_var_count = 0;
 static int local_var_capacity = 0;
 
+static CodegenSymbol *global_vars = NULL;
+static int global_var_count = 0;
+static int global_var_capacity = 0;
+
 static LLVMBasicBlockRef current_break_target = NULL;
 static LLVMBasicBlockRef current_continue_target = NULL;
 
@@ -38,6 +42,20 @@ static void add_local_var(const char *name, const LLVMValueRef value, const Type
     local_var_count++;
 }
 
+static void add_global_var(const char *name, const LLVMValueRef value, const TypeKind type, const int pointer_level, int array_size) {
+    if (global_var_count >= global_var_capacity) {
+        global_var_capacity = global_var_capacity == 0 ? 16 : global_var_capacity * 2;
+        global_vars = realloc(global_vars, sizeof(CodegenSymbol) * global_var_capacity);
+    }
+
+    global_vars[global_var_count].name = strdup(name);
+    global_vars[global_var_count].value = value;
+    global_vars[global_var_count].type = type;
+    global_vars[global_var_count].pointer_level = pointer_level;
+    global_vars[global_var_count].array_size = array_size;
+    global_var_count++;
+}
+
 static CodegenSymbol* lookup_local_var_full(const char *name) {
     // Search from the end to find most recently declared variable
     for (int i = local_var_count - 1; i >= 0; i--) {
@@ -48,9 +66,37 @@ static CodegenSymbol* lookup_local_var_full(const char *name) {
     return NULL;
 }
 
+static CodegenSymbol* lookup_global_var_full(const char *name) {
+    // Search from the end to find most recently declared variable
+    for (int i = global_var_count - 1; i >= 0; i--) {
+        if (strcmp(global_vars[i].name, name) == 0) {
+            return &global_vars[i];
+        }
+    }
+
+    return NULL;
+}
+
+static LLVMValueRef lookup_global_var(const char *name) {
+    CodegenSymbol *sym = lookup_global_var_full(name);
+    return sym ? sym->value : NULL;
+}
+
 static LLVMValueRef lookup_local_var(const char *name) {
     CodegenSymbol *sym = lookup_local_var_full(name);
     return sym ? sym->value : NULL;
+}
+
+static LLVMValueRef lookup_var(const char *name) {
+    LLVMValueRef val = lookup_local_var(name);
+    if (!val) val = lookup_global_var(name);
+    return val;
+}
+
+static CodegenSymbol* lookup_var_full(const char *name) {
+    CodegenSymbol *sym = lookup_local_var_full(name);
+    if (!sym) sym = lookup_global_var_full(name);
+    return sym;
 }
 
 static void clear_local_vars(void) {
@@ -134,7 +180,8 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
             return str_const;
         }
         case EXPR_VAR: {
-            CodegenSymbol *sym = lookup_local_var_full(expr->text);
+            CodegenSymbol *sym = lookup_var_full(expr->text);
+
             if (!sym) {
                 fprintf(stderr, "Codegen error: undefined variable '%s'\n", expr->text);
                 exit(1);
@@ -228,7 +275,8 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
 
                     if (expr->binop.left->kind == EXPR_VAR) {
                         // Assigning to a variable: x = 5
-                        lhs_ptr = lookup_local_var(expr->binop.left->text);
+                        lhs_ptr = lookup_var(expr->binop.left->text);
+
                         if (!lhs_ptr) {
                             fprintf(stderr, "Assignment to undefined variable '%s'\n", expr->binop.left->text);
                             exit(1);
@@ -247,10 +295,10 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
                         LLVMValueRef array_ptr;
 
                         if (array_expr->kind == EXPR_VAR) {
-                            array_ptr = lookup_local_var(array_expr->text);
+                            array_ptr = lookup_var(array_expr->text);
+
                             if (!array_ptr) {
-                                fprintf(stderr, "Codegen error: undefined array variable '%s'\n",
-                                        array_expr->text);
+                                fprintf(stderr, "Codegen error: undefined array variable '%s'\n", array_expr->text);
                                 exit(1);
                             }
                         } else {
@@ -267,7 +315,7 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
                         // Check if this is an actual array or a pointer
                         CodegenSymbol *sym = NULL;
                         if (array_expr->kind == EXPR_VAR) {
-                            sym = lookup_local_var_full(array_expr->text);
+                            sym = lookup_var_full(array_expr->text);
                         }
 
                         if (sym && sym->array_size > 0) {
@@ -331,7 +379,8 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
             if (expr->unary.op == UNARY_ADDR_OF) {
                 if (expr->unary.operand->kind == EXPR_VAR) {
                     // Return the pointer to the variable (don't load it)
-                    return lookup_local_var(expr->unary.operand->text);
+                    LLVMValueRef var = lookup_var(expr->unary.operand->text);
+                    return var;
                 } else if (expr->unary.operand->kind == EXPR_ARRAY_INDEX) {
                     // Taking address of array element: &arr[i]
                     // We need to compute the element pointer without loading the value
@@ -342,10 +391,10 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
                     LLVMValueRef array_ptr;
 
                     if (array_expr->kind == EXPR_VAR) {
-                        array_ptr = lookup_local_var(array_expr->text);
+                        array_ptr = lookup_var(array_expr->text);
+
                         if (!array_ptr) {
-                            fprintf(stderr, "Codegen error: undefined array variable '%s'\n",
-                                    array_expr->text);
+                            fprintf(stderr, "Codegen error: undefined array variable '%s'\n", array_expr->text);
                             exit(1);
                         }
                     } else {
@@ -364,7 +413,7 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
                     // Check if this is an actual array or a pointer
                     CodegenSymbol *sym = NULL;
                     if (array_expr->kind == EXPR_VAR) {
-                        sym = lookup_local_var_full(array_expr->text);
+                        sym = lookup_var_full(array_expr->text);
                     }
 
                     LLVMValueRef element_ptr;
@@ -444,10 +493,10 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
 
             if (expr->array_index.array->kind == EXPR_VAR) {
                 // if it's a variable, get its pointer (don't load it yet)
-                array_ptr = lookup_local_var(expr->array_index.array->text);
+                array_ptr = lookup_var(expr->array_index.array->text);
+
                 if (!array_ptr) {
-                    fprintf(stderr, "Codegen error: undefined array variable '%s'\n",
-                            expr->array_index.array->text);
+                    fprintf(stderr, "Codegen error: undefined array variable '%s'\n", expr->array_index.array->text);
                     exit(1);
                 }
             } else {
@@ -466,7 +515,7 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
             // check if this is an array (allocated with alloca) or a pointer
             CodegenSymbol *sym = NULL;
             if (expr->array_index.array->kind == EXPR_VAR) {
-                sym = lookup_local_var_full(expr->array_index.array->text);
+                sym = lookup_var_full(expr->array_index.array->text);
             }
 
             if (sym && sym->array_size > 0) {
@@ -743,8 +792,8 @@ static void codegen_statement(const StmtNode* stmt) {
                 for (size_t i = 0; i < stmt->asm_stmt.output_count; i++) {
                     ExprNode *output_expr = stmt->asm_stmt.outputs[i];
                     if (output_expr->kind == EXPR_VAR) {
-                        output_vals[i] = lookup_local_var(output_expr->text);
-                        CodegenSymbol *sym = lookup_local_var_full(output_expr->text);
+                        output_vals[i] = lookup_var(output_expr->text);
+                        CodegenSymbol *sym = lookup_var_full(output_expr->text);
                         output_types[i] = get_llvm_type(sym->type);
                     } else {
                         fprintf(stderr, "Output operand must be a variable\n");
@@ -917,7 +966,7 @@ static void codegen_statement(const StmtNode* stmt) {
                 var_type = LLVMArrayType(element_type, stmt->var_decl.array_size);
 
                 // Check if variable already exists at this scope level
-                LLVMValueRef existing = lookup_local_var(stmt->var_decl.name);
+                LLVMValueRef existing = lookup_var(stmt->var_decl.name);
 
                 if (existing) {
                     alloca = existing;
@@ -940,7 +989,7 @@ static void codegen_statement(const StmtNode* stmt) {
                 var_type = get_llvm_type_with_pointers(stmt->var_decl.type, stmt->var_decl.pointer_level);
 
                 // Check if variable already exists at this scope level
-                LLVMValueRef existing = lookup_local_var(stmt->var_decl.name);
+                LLVMValueRef existing = lookup_var(stmt->var_decl.name);
 
                 if (existing) {
                     alloca = existing;
@@ -1045,6 +1094,50 @@ void codegen_program_llvm(const ProgramNode* program, const char* output_file) {
     builder = LLVMCreateBuilderInContext(context);
 
     printf("LLVM codegen initialized\n");
+
+    // global variables
+    for (int i = 0; i < program->global_count; ++i) {
+        const GlobalVarNode *global_var = program->globals[i];
+
+        LLVMTypeRef var_type;
+        if (global_var->array_size > 0) {
+            LLVMTypeRef element_type = get_llvm_type_with_pointers(global_var->kind, global_var->pointer_level);
+            var_type = LLVMArrayType(element_type, global_var->array_size);
+        } else {
+            var_type = get_llvm_type_with_pointers(global_var->kind, global_var->pointer_level);
+        }
+
+        // Create the global variable in the module
+        LLVMValueRef llvm_global = LLVMAddGlobal(module, var_type, global_var->name);
+
+        LLVMValueRef init_value;
+        if (global_var->initializer) {
+            // for now, only handle constant expressions
+            if (global_var->initializer->kind == EXPR_NUMBER) {
+                // It's a number literal
+                int value = atoi(global_var->initializer->text);
+                init_value = LLVMConstInt(var_type, value, 0);
+            } else if (global_var->initializer->kind == EXPR_STRING_LITERAL) {
+                // It's a string literal
+                init_value = LLVMConstString(global_var->initializer->text, strlen(global_var->initializer->text), 0);
+            } else {
+                // Non-constant initializer - error for now
+                fprintf(stderr, "Error: Global variable '%s' has non-constant initializer\n", global_var->name);
+                exit(1);
+            }
+        } else {
+            init_value = LLVMConstNull(var_type);
+        }
+
+        LLVMSetInitializer(llvm_global, init_value);
+
+        // Handle const
+        if (global_var->is_const) {
+            LLVMSetGlobalConstant(llvm_global, 1);
+        }
+
+        add_global_var(global_var->name, llvm_global, global_var->kind, global_var->pointer_level, global_var->array_size);
+    }
 
     // code for each function
     for (int i = 0; i < program->function_count; i++) {

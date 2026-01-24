@@ -5,6 +5,7 @@
 
 // entry
 ProgramNode *parse_program(void);
+GlobalVarNode *parse_global_var(void);
 
 // grammar
 FunctionNode *parse_function(void);

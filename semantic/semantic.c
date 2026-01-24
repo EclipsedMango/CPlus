@@ -490,8 +490,7 @@ void analyze_program(const ProgramNode *program) {
     for (int i = 0; i < program->function_count; ++i) {
         const FunctionNode* func = program->functions[i];
         if (scope_lookup(global, func->name)) {
-            fprintf(stderr, "Error: function '%s' already declared\n", func->name);
-            exit(1);
+            report_error(func->location, "function '%s' already declared", func->name);
         }
 
         Symbol *sym = malloc(sizeof(Symbol));
@@ -500,6 +499,42 @@ void analyze_program(const ProgramNode *program) {
         sym->type = func->return_type;
         sym->pointer_level = func->return_pointer_level;
         sym->location = func->location;
+
+        scope_add_symbol(global, sym);
+    }
+
+    for (int i = 0; i < program->global_count; ++i) {
+        const GlobalVarNode* global_var = program->globals[i];
+        if (scope_lookup(global, global_var->name)) {
+            report_error(global_var->location, "global variable '%s' already declared", global_var->name);
+        }
+
+        Symbol *sym = malloc(sizeof(Symbol));
+        sym->name = strdup(global_var->name);
+        sym->kind = SYM_VARIABLE;
+        sym->type = global_var->kind;
+        sym->location = global_var->location;
+
+        if (global_var->array_size > 0) {
+            sym->pointer_level = global_var->pointer_level + 1;
+        } else {
+            sym->pointer_level = global_var->pointer_level;
+        }
+
+        if (global_var->initializer) {
+            analyze_expression(global_var->initializer, global);
+
+            if (!types_compatible_with_pointers(global_var->kind, global_var->pointer_level,
+                                                global_var->kind, global_var->pointer_level)) {
+                report_error(global_var->location, "Type mismatch in initialization of '%s'. Expected '%s%s', got '%s%s'.",
+                    global_var->name,
+                    type_to_str(global_var->kind),
+                    global_var->pointer_level > 0 ? "*" : "",
+                    type_to_str(global_var->kind),
+                    global_var->pointer_level > 0 ? "*" : ""
+                );
+            }
+        }
 
         scope_add_symbol(global, sym);
     }

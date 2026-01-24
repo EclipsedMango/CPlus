@@ -17,6 +17,7 @@ static char *KW_DOUBLE   = "double";
 static char *KW_STRING   = "string";
 static char *KW_BOOL     = "bool";
 static char *KW_VOID     = "void";
+static char *KW_CONST    = "const";
 static char *KW_RETURN   = "return";
 static char *KW_IF       = "if";
 static char *KW_ELSE     = "else";
@@ -144,6 +145,7 @@ static Token lex_identifier_or_keyword(FILE *f, const int first) {
     if (strcmp(lexeme, KW_STRING) == 0)   tok = (Token){ .type = TOK_STRING_KW, .lexeme = KW_STRING, .location = loc };
     if (strcmp(lexeme, KW_BOOL) == 0)     tok = (Token){ .type = TOK_BOOL, .lexeme = KW_BOOL, .location = loc };
     if (strcmp(lexeme, KW_VOID) == 0)     tok = (Token){ .type = TOK_VOID, .lexeme = KW_VOID, .location = loc };
+    if (strcmp(lexeme, KW_CONST) == 0)    tok = (Token){ .type = TOK_CONST, .lexeme = KW_CONST, .location = loc };
     if (strcmp(lexeme, KW_RETURN) == 0)   tok = (Token){ .type = TOK_RETURN, .lexeme = KW_RETURN, .location = loc };
     if (strcmp(lexeme, KW_IF) == 0)       tok = (Token){ .type = TOK_IF, .lexeme = KW_IF, .location = loc };
     if (strcmp(lexeme, KW_ELSE) == 0)     tok = (Token){ .type = TOK_ELSE, .lexeme = KW_ELSE, .location = loc };
@@ -342,6 +344,7 @@ const char* token_type_to_string(const TokenType type) {
         case TOK_STRING_KW: return KW_STRING;
         case TOK_BOOL: return KW_BOOL;
         case TOK_VOID: return KW_VOID;
+        case TOK_CONST: return KW_CONST;
         case TOK_RETURN: return KW_RETURN;
         case TOK_IF: return KW_IF;
         case TOK_ELSE: return KW_ELSE;
