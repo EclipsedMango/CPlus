@@ -1,67 +1,7 @@
-#include "common.h"
+#include "map.h"
 
-#include <stdio.h>
 #include <stdlib.h>
-#include <stdarg.h>
 #include <string.h>
-
-int max(const int a, const int b) {
-    return a > b ? a : b;
-}
-
-Vector create_vector(const int capacity, const int element_size) {
-    return (Vector){.capacity = capacity, .length = 0, .element_size = element_size, .elements = malloc(element_size * capacity)};
-}
-
-void vector_destroy(Vector* vector) {
-    free(vector->elements);
-    vector->elements = NULL;
-    vector->capacity = 0;
-    vector->length = 0;
-}
-
-void* vector_get(const Vector* vector, const int index) {
-    if (index < 0 || index >= vector->length) {
-        return NULL;
-    }
-
-    return (char*)vector->elements + index * vector->element_size;
-}
-
-void vector_set(const Vector* vector, const int index, const void* element) {
-    if (index < 0 || index >= vector->length) {
-        return;
-    }
-
-    void* dest = (char*)vector->elements + index * vector->element_size;
-    memcpy(dest, element, vector->element_size);
-}
-
-void vector_push(Vector* vector, const void* element) {
-    if (vector->length >= vector->capacity) {
-        const int new_capacity = vector->capacity == 0 ? 1 : vector->capacity * 2;
-        void* new_elements = realloc(vector->elements, new_capacity * vector->element_size);
-
-        if (!new_elements) {
-            return;
-        }
-
-        vector->elements = new_elements;
-        vector->capacity = new_capacity;
-    }
-
-    void* dest = (char*)vector->elements + vector->length * vector->element_size;
-    memcpy(dest, element, vector->element_size);
-    vector->length++;
-}
-
-void vector_pop(Vector* vector) {
-    if (vector->length > 0) {
-        vector->length--;
-    }
-}
-
-// MAP
 
 /* djb2 hash */
 static unsigned long map_hash(const char *str) {
@@ -191,16 +131,4 @@ bool map_remove(Map *map, const char *key) {
         e = e->next;
     }
     return false;
-}
-
-void report_error(const SourceLocation loc, const char *fmt, ...) {
-    fprintf(stderr, "%s:%d:%d: Error: ", loc.filename ? loc.filename : "<unknown>", loc.line, loc.column);
-
-    va_list args;
-    va_start(args, fmt);
-    vfprintf(stderr, fmt, args);
-    va_end(args);
-
-    fprintf(stderr, "\n");
-    exit(1);
 }

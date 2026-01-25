@@ -1,7 +1,7 @@
-#ifndef C__LEXER_H
-#define C__LEXER_H
-#include "../common.h"
-#include <stdio.h>
+#ifndef C__TOKEN_H
+#define C__TOKEN_H
+
+#include "../util/common.h"
 
 typedef enum {
     // keywords
@@ -87,9 +87,8 @@ typedef struct Token {
     SourceLocation location;
 } Token;
 
-Token next_token(FILE *f);
-void lexer_init(const char *filename);
 const char* token_type_to_string(TokenType type);
+void token_free_lexeme(Token *token);
 
+#endif //C__TOKEN_H
 
-#endif //C__LEXER_H
