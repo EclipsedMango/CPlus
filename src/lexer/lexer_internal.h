@@ -10,12 +10,22 @@ struct Lexer {
     const char *filename;
     int current_line;
     int current_column;
+
+    int last_line;
+    int last_column;
+
+    int has_pushback;
+    int pushback_char;
 };
 
 static void skip_line_comment(Lexer *lex);
 static int skip_whitespace(Lexer *lex);
+
 static int next_char(Lexer *lex);
+static void unread_char(Lexer *lex, int c);
+
 static SourceLocation make_location(const Lexer *lex);
+static SourceLocation make_last_location(const Lexer *lex);
 
 static Token lex_identifier_or_keyword(Lexer *lex, int first_char);
 static Token lex_number_literal(Lexer *lex, int first_char);

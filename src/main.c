@@ -74,14 +74,23 @@ int main(const int argc, char *argv[]) {
     }
 
     diag_print_all(diag);
+    if (diag_has_errors(diag)) {
+        remove("output.o");
 
-    if (useLLvm) {
+        parser_destroy(parser);
+        lexer_destroy(lex);
+        diag_destroy(diag);
+        fclose(f);
+        return 1;
+    }
+
+    if (useLLvm && !diag_has_errors(diag)) {
         codegen_program_llvm(prog, "output.o");
+        printf("Compiler: codegen complete\n");
     }
     //else {
       //  codegen_program_cat(prog, "output.asm");
     //}
-    printf("Compiler: codegen complete\n");
 
     parser_destroy(parser);
     lexer_destroy(lex);

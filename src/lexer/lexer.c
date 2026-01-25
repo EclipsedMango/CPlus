@@ -66,6 +66,10 @@ Lexer* lexer_create(const char *filename, FILE *file) {
     lex->filename = filename;
     lex->current_line = 1;
     lex->current_column = 1;
+    lex->last_line = 1;
+    lex->last_column = 1;
+    lex->has_pushback = 0;
+    lex->pushback_char = 0;
 
     return lex;
 }
@@ -142,48 +146,69 @@ static SourceLocation make_location(const Lexer *lex) {
     return loc;
 }
 
+static SourceLocation make_last_location(const Lexer *lex) {
+    SourceLocation loc;
+    loc.line = lex->last_line;
+    loc.column = lex->last_column;
+    loc.filename = lex->filename;
+    return loc;
+}
+
 static int next_char(Lexer *lex) {
-    int c = fgetc(lex->file);
+    lex->last_line = lex->current_line;
+    lex->last_column = lex->current_column;
+
+    int c;
+    if (lex->has_pushback) {
+        c = lex->pushback_char;
+        lex->has_pushback = 0;
+    } else {
+        c = fgetc(lex->file);
+    }
+
+    if (c == EOF) return EOF;
+
     if (c == '\n') {
         lex->current_line++;
         lex->current_column = 1;
-    } else if (c != EOF) {
+    } else {
         lex->current_column++;
     }
+
     return c;
+}
+
+static void unread_char(Lexer *lex, const int c) {
+    if (c == EOF) return;
+    if (lex->has_pushback) {
+        report_error(make_location(lex), "Internal lexer error: pushback buffer overflow");
+    }
+
+    lex->has_pushback = 1;
+    lex->pushback_char = c;
+
+    lex->current_line = lex->last_line;
+    lex->current_column = lex->last_column;
 }
 
 static void skip_line_comment(Lexer *lex) {
     int c;
-    while ((c = fgetc(lex->file)) != EOF && c != '\n') {
-        lex->current_column++;
-    }
-
-    if (c == '\n') {
-        lex->current_line++;
-        lex->current_column = 1;
-    }
+    while ((c = next_char(lex)) != EOF && c != '\n') {}
 }
 
 static int skip_whitespace(Lexer *lex) {
     int c;
-    while (1) {
-        c = fgetc(lex->file);
+    while ((c = next_char(lex)) != EOF) {
+        if (c == ' ' || c == '\t' || c == '\r' || c == '\n') continue;
+        return c;
 
-        if (c == '\n') {
-            lex->current_line++;
-            lex->current_column = 1;
-        } else if (c == ' ' || c == '\t' || c == '\r') {
-            lex->current_column++;
-        } else {
-            break;
-        }
     }
-
-    return c;
+    return EOF;
 }
 
 static Token lex_identifier_or_keyword(Lexer *lex, const int first_char) {
+    const SourceLocation start = make_last_location(lex);
+
     Vector buffer = create_vector(8, sizeof(char));
 
     char ch = (char)first_char;
@@ -197,11 +222,9 @@ static Token lex_identifier_or_keyword(Lexer *lex, const int first_char) {
 
     ch = '\0';
     vector_push(&buffer, &ch);
-
-    ungetc(c, lex->file);
+    unread_char(lex, c);
 
     const char *lexeme = buffer.elements;
-    const SourceLocation loc = make_location(lex);
 
     // keywords
     for (int i = 0; keywords[i].text != NULL; ++i) {
@@ -209,7 +232,7 @@ static Token lex_identifier_or_keyword(Lexer *lex, const int first_char) {
             const Token tok = {
                 .type = keywords[i].type,
                 .lexeme = keywords[i].text,
-                .location = loc
+                .location = start
             };
 
             vector_destroy(&buffer);
@@ -221,7 +244,7 @@ static Token lex_identifier_or_keyword(Lexer *lex, const int first_char) {
     const Token tok = {
         .type = TOK_IDENTIFIER,
         .lexeme = strdup(lexeme),
-        .location = loc
+        .location = start
     };
 
     vector_destroy(&buffer);
@@ -229,6 +252,8 @@ static Token lex_identifier_or_keyword(Lexer *lex, const int first_char) {
 }
 
 static Token lex_number_literal(Lexer *lex, const int first_char) {
+    const SourceLocation start = make_last_location(lex);
+
     Vector buf = create_vector(8, sizeof(char));
     int hasDecimal = 0;
     char ch = (char)first_char;
@@ -239,10 +264,12 @@ static Token lex_number_literal(Lexer *lex, const int first_char) {
     // read digits
     while (c != EOF && (isdigit(c) || c == '.')) {
         if (c == '.') {
+            const SourceLocation dot_loc = make_last_location(lex);
+
             if (hasDecimal) {
                 vector_destroy(&buf);
-                report_error(make_location(lex), "Invalid number: multiple decimal points");
-                return (Token){TOK_INVALID, NULL, make_location(lex)};
+                report_error(dot_loc, "Invalid number: multiple decimal points");
+                return (Token){TOK_INVALID, NULL, dot_loc};
             }
 
             hasDecimal = 1;
@@ -255,15 +282,14 @@ static Token lex_number_literal(Lexer *lex, const int first_char) {
 
     ch = '\0';
     vector_push(&buf, &ch);
-    ungetc(c, lex->file);
+    unread_char(lex, c);
 
     const char *lexeme = buf.elements;
-    const SourceLocation loc = make_location(lex);
 
     const Token tok = {
         .type = hasDecimal ? TOK_DECI_NUMBER : TOK_NUMBER,
         .lexeme = strdup(lexeme),
-        .location = loc
+        .location = start
     };
 
     vector_destroy(&buf);
@@ -274,15 +300,17 @@ static Token lex_string_literal(Lexer *lex) {
     Vector buf = create_vector(16, sizeof(char));
     int c;
 
+    const SourceLocation start = make_last_location(lex);
+
     while ((c = next_char(lex)) != EOF) {
         if (c == '"') {
-            constexpr char ch = '\0';
+            const char ch = '\0';
             vector_push(&buf, &ch);
 
             const Token tok = {
                 TOK_STRING_LITERAL,
                 strdup(buf.elements),
-                make_location(lex)
+                start
             };
 
             vector_destroy(&buf);
@@ -291,8 +319,8 @@ static Token lex_string_literal(Lexer *lex) {
 
         if (c == '\n') {
             vector_destroy(&buf);
-            report_error(make_location(lex), "Unterminated string literal (newlines not allowed)");
-            return (Token){TOK_INVALID, NULL, make_location(lex)};
+            report_error(make_last_location(lex), "Unterminated string literal (newlines not allowed)");
+            return (Token){TOK_INVALID, NULL, make_last_location(lex)};
         }
 
         if (c == '\\') {
@@ -310,8 +338,8 @@ static Token lex_string_literal(Lexer *lex) {
                     continue;
                 default: {
                     vector_destroy(&buf);
-                    report_error(make_location(lex), "Unknown escape sequence: \\%c", c);
-                    return (Token){TOK_INVALID, NULL, make_location(lex)};
+                    report_error(make_last_location(lex), "Unknown escape sequence: \\%c", c);
+                    return (Token){TOK_INVALID, NULL, make_last_location(lex)};
                 }
             }
 
@@ -328,43 +356,43 @@ static Token lex_string_literal(Lexer *lex) {
 }
 
 static Token lex_operator_or_punct(Lexer *lex, const int c) {
-    const SourceLocation loc = make_location(lex);
+    const SourceLocation loc = make_last_location(lex);
     int next;
 
     switch (c) {
         // operators with possible lookahead
         case '=': {
             next = next_char(lex);
-            if (next == '=') return (Token) { TOK_EQUAL_EQUAL, "==", loc };
-            ungetc(next, lex->file);
+            if (next == '=') return (Token) { TOK_EQUAL_EQUAL, .lexeme = "==", loc };
+            unread_char(lex, next);
 
-            return (Token){ TOK_ASSIGN, "=", loc };
+            return (Token){ TOK_ASSIGN, .lexeme = "=", loc };
         }
         case '>': {
             next = next_char(lex);
-            if (next == '=') return (Token){TOK_GREATER_EQUALS, ">=", loc };
-            ungetc(next, lex->file);
+            if (next == '=') return (Token){TOK_GREATER_EQUALS, .lexeme =">=", loc };
+            unread_char(lex, next);
 
-            return (Token){TOK_GREATER, ">", loc };
+            return (Token){TOK_GREATER, .lexeme = ">", loc };
         }
         case '<': {
             next = next_char(lex);
-            if (next == '=') return (Token){TOK_LESS_EQUALS, "<=", loc };
-            ungetc(next, lex->file);
+            if (next == '=') return (Token){TOK_LESS_EQUALS, .lexeme = "<=", loc };
+            unread_char(lex, next);
 
-            return (Token){TOK_LESS, "<", loc};
+            return (Token){TOK_LESS, .lexeme = "<", loc};
         }
         case '&': {
             next = next_char(lex);
-            if (next == '&') return (Token){TOK_AND, "&&", loc };
-            ungetc(next, lex->file);
+            if (next == '&') return (Token){TOK_AND, .lexeme = "&&", loc };
+            unread_char(lex, next);
 
-            return (Token){TOK_AMPERSAND, "&", loc};
+            return (Token){TOK_AMPERSAND, .lexeme = "&", loc};
         }
         case '|': {
             next = next_char(lex);
-            if (next == '|') return (Token){TOK_OR, "||", loc };
-            ungetc(next, lex->file);
+            if (next == '|') return (Token){TOK_OR, .lexeme = "||", loc };
+            unread_char(lex, next);
 
             // maybe add bitwise OR later?
             report_error(loc, "Unexpected character '|'. Did you mean '||'?");
@@ -372,10 +400,10 @@ static Token lex_operator_or_punct(Lexer *lex, const int c) {
         }
         case '!': {
             next = next_char(lex);
-            if (next == '=') return (Token){TOK_NOT_EQUAL, "!=", loc };
-            ungetc(next, lex->file);
+            if (next == '=') return (Token){TOK_NOT_EQUAL, .lexeme = "!=", loc };
+            unread_char(lex, next);
 
-            return (Token){TOK_NOT, "!", loc };
+            return (Token){TOK_NOT, .lexeme = "!", loc };
         }
         case '/': {
             next = next_char(lex);
@@ -384,26 +412,26 @@ static Token lex_operator_or_punct(Lexer *lex, const int c) {
                 return (Token){TOK_EOF, NULL, loc };
             }
 
-            ungetc(next, lex->file);
-            return (Token){.type = TOK_DIVIDE, "/", loc};
+            unread_char(lex, next);
+            return (Token){.type = TOK_DIVIDE, .lexeme = "/", loc};
         }
 
         // single-char operators
-        case '+': return (Token){TOK_PLUS, "+", loc};
-        case '-': return (Token){TOK_SUBTRACT, "-", loc};
-        case '*': return (Token){TOK_ASTERISK, "*", loc};
-        case '%': return (Token){TOK_MODULO, "%", loc};
+        case '+': return (Token){TOK_PLUS, .lexeme = "+", loc};
+        case '-': return (Token){TOK_SUBTRACT, .lexeme = "-", loc};
+        case '*': return (Token){TOK_ASTERISK, .lexeme = "*", loc};
+        case '%': return (Token){TOK_MODULO, .lexeme = "%", loc};
 
         // Punctuation
-        case '(': return (Token){TOK_LPAREN, "(", loc};
-        case ')': return (Token){TOK_RPAREN, ")", loc};
-        case '{': return (Token){TOK_LBRACE, "{", loc};
-        case '}': return (Token){TOK_RBRACE, "}", loc};
-        case '[': return (Token){TOK_LSQUARE, "[", loc};
-        case ']': return (Token){TOK_RSQUARE, "]", loc};
-        case ':': return (Token){TOK_COLON, ":", loc};
-        case ',': return (Token){TOK_COMMA, ",", loc};
-        case ';': return (Token){TOK_SEMI, ";", loc};
+        case '(': return (Token){TOK_LPAREN, .lexeme = "(", loc};
+        case ')': return (Token){TOK_RPAREN, .lexeme = ")", loc};
+        case '{': return (Token){TOK_LBRACE, .lexeme = "{", loc};
+        case '}': return (Token){TOK_RBRACE, .lexeme = "}", loc};
+        case '[': return (Token){TOK_LSQUARE, .lexeme = "[", loc};
+        case ']': return (Token){TOK_RSQUARE, .lexeme = "]", loc};
+        case ':': return (Token){TOK_COLON, .lexeme = ":", loc};
+        case ',': return (Token){TOK_COMMA, .lexeme = ",", loc};
+        case ';': return (Token){TOK_SEMI, .lexeme = ";", loc};
 
         default:
             report_error(loc, "Unexpected character: '%c'", c);

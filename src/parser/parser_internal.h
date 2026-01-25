@@ -12,6 +12,7 @@ struct Parser {
     Lexer *lexer;
     DiagnosticEngine *diagnostics;
     Token token_buffer[TOKEN_BUFFER_SIZE];
+    Vector retired_tokens;
 };
 
 void parser_init_token_buffer(Parser *p);

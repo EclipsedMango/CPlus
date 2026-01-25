@@ -9,6 +9,7 @@ Parser* parser_create(Lexer *lexer, DiagnosticEngine *diagnostics) {
 
     p->lexer = lexer;
     p->diagnostics = diagnostics;
+    p->retired_tokens = create_vector(128, sizeof(Token));
 
     parser_init_token_buffer(p);
     return p;
@@ -21,6 +22,13 @@ void parser_destroy(Parser *parser) {
     for (int i = 0; i < TOKEN_BUFFER_SIZE; i++) {
         token_free_lexeme(&parser->token_buffer[i]);
     }
+
+    for (int i = 0; i < parser->retired_tokens.length; i++) {
+        Token *t = vector_get(&parser->retired_tokens, i);
+        token_free_lexeme(t);
+    }
+
+    vector_destroy(&parser->retired_tokens);
 
     free(parser);
 }
@@ -95,7 +103,7 @@ void parser_init_token_buffer(Parser *p) {
 }
 
 void parser_update_token_buffer(Parser *p) {
-    token_free_lexeme(&p->token_buffer[0]);
+    vector_push(&p->retired_tokens, &p->token_buffer[0]);
 
     // shift tokens to the left
     for (int i = 0; i < TOKEN_BUFFER_SIZE - 1; i++) {
