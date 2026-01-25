@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define PROLOGUE_STACK_SIZE 20  // including ret pointer
 const char* prologue = "    ; prologue\n"
                        "    push r4\n"
                        "    push r5\n"
@@ -20,7 +21,7 @@ const char* epilogue = "\n    ; epilogue\n"
                        "    pop r4\n"
                        "    ret\n";
 
-const char* arg_registers[3] = {"r1", "r2", "r3"};
+const int arg_registers[3] = {1, 2, 3};
 
 char** strings[256];
 int string_count = 0;
@@ -29,8 +30,69 @@ int branch_num = 0;
 Map* variables;  // key is name, value is offset from r7
 int current_r7_offset = 0;
 
+#define USABLE_REGISTERS 7
+const int usable_registers[] = {0, 1, 2, 3, 4, 5, 6};
+int register_statuses[USABLE_REGISTERS];  // 0 is unused, 1 is used
+
+int get_reg_index(const int reg) {
+    for (int i = 0; i < USABLE_REGISTERS; ++i) {
+        if (usable_registers[i] == reg) {
+            return i;
+        }
+    }
+    
+    fprintf(stderr, "Error: Tried to get index of register that isn't usable.");
+    exit(1);
+}
+
+int borrow_register(int* outMustPreserve, const int not) {
+    for (int i = 0; i < USABLE_REGISTERS; ++i) {
+        if (usable_registers[i] == not) continue;
+        
+        if (!register_statuses[i]) {
+            *outMustPreserve = 0;  // don't need to preserve
+            register_statuses[i] = 1;
+            return usable_registers[i];
+        }
+    }
+    
+    // okay we couldn't find an unborrowed one
+    // give them one, but they must preserve it
+    *outMustPreserve = 1;
+    for (int i = 0; i < USABLE_REGISTERS; ++i) {
+        if (usable_registers[i] == not) continue;
+        
+        return usable_registers[i];
+    }
+    
+    // couldn't find anything
+    fprintf(stderr, "Error: Ran out of registers D:");
+    exit(1);
+}
+
+// returns whether is must be preserved
+int borrow_specific_register(const int reg) {
+    const int i = get_reg_index(reg);
+    if (register_statuses[i]) {
+        return 1;  // in use
+    }
+    
+    register_statuses[i] = 1;
+    return 0;  // not in use
+}
+
+void return_register(const int reg, const int preserved) {
+    const int index = get_reg_index(reg);
+    
+    if (preserved) {
+        // do nothing
+    } else {
+        register_statuses[index] = 0;
+    }
+}
+
 void expr_in_reg(ExprNode* expr, FILE* file, int reg);
-void codegen_call(const ExprNode* expr, FILE* file);
+void codegen_call(const ExprNode* expr, FILE* file, int returnIn);
 
 void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
     switch (expr->kind) {
@@ -59,11 +121,16 @@ void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
         case EXPR_BINOP: {
             const BinaryOp op = expr->binop.op;
             if (op < BIN_ASSIGN || op > BIN_ASSIGN) {  // compare or maths
-                // let's just use r4 and r5 (we need to preserve them in case of nested ops)
-                if (reg != 4) fprintf(file, "    push r4\n");
-                if (reg != 5) fprintf(file, "    push r5\n");
-                expr_in_reg(expr->binop.left, file, 4);
-                expr_in_reg(expr->binop.right, file, 5);
+                // okay we need two temp registers
+                int preserve1;
+                int preserve2;
+                const int scratch1 = borrow_register(&preserve1, reg);
+                const int scratch2 = borrow_register(&preserve2, reg);
+                
+                if (preserve1) fprintf(file, "    push r%d\n", scratch1);
+                if (preserve2) fprintf(file, "    push r%d\n", scratch2);
+                expr_in_reg(expr->binop.left, file, scratch1);
+                expr_in_reg(expr->binop.right, file, scratch2);
                     
                 if (op < BIN_EQUAL || op > BIN_ASSIGN) {  // maths
                     char* op_instr = NULL;
@@ -90,10 +157,10 @@ void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
                             fprintf(stderr, "Error: Invalid OP, was one added without me knowing?");
                             exit(1);
                     }
-                    fprintf(file, "    %s r4, r5\n", op_instr);  // perform the op
-                    fprintf(file, "    mov r%d, r4\n", reg);
+                    fprintf(file, "    %s r%d, r%d\n", op_instr, scratch1, scratch2);  // perform the op
+                    fprintf(file, "    mov r%d, r%d\n", reg, scratch1);
                 } else {  // compare
-                    fprintf(file, "    cmp r4, r5  ; compare our values for bin op\n");
+                    fprintf(file, "    cmp r%d, r%d  ; compare our values for bin op\n", scratch1, scratch2);
                     
                     char* jmp_instr = NULL;
                     switch (op) {
@@ -142,8 +209,10 @@ void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
                 }
                 
                 // restore registers
-                if (reg != 5) fprintf(file, "    pop r5\n");
-                if (reg != 4) fprintf(file, "    pop r4\n");
+                if (preserve2) fprintf(file, "    pop r%d\n", scratch2);
+                if (preserve1) fprintf(file, "    pop r%d\n", scratch1);
+                return_register(scratch2, preserve2);
+                return_register(scratch1, preserve1);
             } else {  // assignment
                 char* varName;
                 ExprNode* arrayIndex = NULL;
@@ -181,31 +250,36 @@ void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
                     exit(1);
                 }
                 
-                expr_in_reg(expr->binop.right, file, reg);  // place value into register
-                
-                // get value we're setting to (in r6)
                 fprintf(file, "    ; setting variable %s\n", varName);
-                fprintf(file, "    push r6\n");  // preserve it
-                fprintf(file, "    mov r6, r%d\n", reg);  // place target value into r6 to save
+                
+                // we need 2 scratch registers
+                int preserve;
+                const int scratch = borrow_register(&preserve, reg);
+                if (preserve) fprintf(file, "    push r%d\n", scratch);
                 
                 if (arrayIndex == NULL) {
                     fprintf(file, "    mov r%d, r7\n", reg);  // our var is at r7+ the offset to it
                     fprintf(file, "    sub r%d, %d\n", reg, offset);  // add the offset
                 } else {
-                    expr_in_reg(arrayIndex, file, 3);
-                    fprintf(file, "    umul r3, 4\n");
+                    expr_in_reg(arrayIndex, file, scratch);
+                    fprintf(file, "    umul r%d, 4\n", scratch);
                     fprintf(file, "    mov r%d, r7\n", reg);
                     fprintf(file, "    sub r%d, %d\n", reg, offset);
                     fprintf(file, "    mov r%d, @r%d\n", reg, reg);
-                    fprintf(file, "    add r%d, r3\n", reg);
+                    fprintf(file, "    add r%d, r%d\n", reg, scratch);
                 }
 
                 for (int i = 0; i < dereferenceCount; ++i) {
                     fprintf(file, "    mov r%d, @r%d\n", reg, reg);  // dereference to get pointer out of memory
                 }
-                fprintf(file, "    mov @r%d, r6\n", reg);  // place r6 val into variable
                 
-                fprintf(file, "    pop r6\n\n");  // put r6 back
+                // get value we're setting to
+                expr_in_reg(expr->binop.right, file, scratch);  // place value into scratch register
+                
+                fprintf(file, "    mov @r%d, r%d\n", reg, scratch);  // set the variable
+                
+                if (preserve) fprintf(file, "    pop r%d\n", scratch);
+                return_register(scratch, preserve);
                 
                 // we can then pop r6 because nothing is being evaluated
                 // after pushing r6, which means the stack is safe
@@ -215,10 +289,7 @@ void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
             break;
         }
         case EXPR_CALL: {
-            codegen_call(expr, file);  // returns in r0
-            if (reg != 0) {
-                fprintf(file, "    mov r%d, r0\n", reg);
-            }
+            codegen_call(expr, file, reg);  // returns in r0
             break;
         }
         case EXPR_UNARY: {
@@ -274,14 +345,22 @@ void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
                 exit(1);
             }
             
+            // we need a scratch register
+            int preserve;
+            const int scratch = borrow_register(&preserve, reg);
+            if (preserve) fprintf(file, "    push r%d\n", scratch);
+            
             fprintf(file, "    ; getting value in array %s\n", expr->array_index.array->text);
-            expr_in_reg(expr->array_index.index, file, 3);
+            expr_in_reg(expr->array_index.index, file, scratch);
             fprintf(file, "    mov r%d, r7\n", reg);
             fprintf(file, "    sub r%d, %d\n", reg, offset);
             fprintf(file, "    mov r%d, @r%d\n", reg, reg);
-            fprintf(file, "    umul r3, 4\n");
-            fprintf(file, "    add r%d, r3\n", reg);
+            fprintf(file, "    umul r%d, 4\n", scratch);
+            fprintf(file, "    add r%d, r%d\n", reg, scratch);
             fprintf(file, "    mov r%d, @r%d\n", reg, reg);
+            
+            if (preserve) fprintf(file, "    pop r%d\n", scratch);
+            return_register(scratch, preserve);
             break;
         }
         default: {
@@ -292,34 +371,73 @@ void expr_in_reg(ExprNode* expr, FILE* file, const int reg) {
 }
 
 // causes r0 override
-void codegen_call(const ExprNode* expr, FILE* file) {
+void codegen_call(const ExprNode* expr, FILE* file, int returnIn) {
     // preserve the arg registers just in case of nested call
-    fprintf(file, "\n    ; calling %s\n"
-                  "    push r1\n"
-                  "    push r2\n"
-                  "    push r3\n"
-                  "    push r7\n", expr->call.function_name);
-    current_r7_offset += 4*3;   // space for 3 args
+    fprintf(file, "\n    ; calling %s\n", expr->call.function_name);
+    if (returnIn != 0) {
+        fprintf(file, "    push r0\n");  // preserve return register
+    }
     
+    // get all arguments
+    Vector preservedRegs = create_vector(3, sizeof(int));
+    Vector nonPreservedRegs = create_vector(3, sizeof(int));
+    int argsSpace = 0;
     for (int i = 0; i < expr->call.arg_count; ++i) {
-        if (i >= 3) {
-            fprintf(stderr, "Error: too many arguments");
-            exit(1);
+        if (i < 3) {  // named register args, simple
+            const int reg = arg_registers[i];
+            const int mustPreserve = borrow_specific_register(reg);
+            if (mustPreserve) {
+                vector_push(&preservedRegs, &arg_registers[i]);
+                fprintf(file, "    push r%d\n", reg);
+            } else {
+                vector_push(&nonPreservedRegs, &arg_registers[i]);
+            }
+            
+            expr_in_reg(expr->call.args[i], file, reg);  // replace the arg value into the register
+            continue;
         }
         
-        expr_in_reg(expr->call.args[i], file, i+1);  // replace the arg value into the register
+        // it needs to go on the stack
+        // we're going to temporarily put into r0 because we're already saving it
+        // and, we can't wrap this call in a push/pop for a scratch register.
+        expr_in_reg(expr->call.args[i], file, 0);
+        fprintf(file, "    push r0\n");  // push onto stack
+        argsSpace += 4;
     }
     
     fprintf(file, "    call %s\n\n", expr->call.function_name);
-    // return value will be left in r0
+    if (argsSpace > 0) {  // we allocated space for args, we need to restore it
+        fprintf(file, "    add sp, %d  ; restore space used by args\n\n", argsSpace);
+    }
     
-    // restore existing arg registers
-    // we can't restore the stack space because we could overwrite variables (yes it's dumb)
-    fprintf(file, "    pop r7\n"
-                  "    pop r3\n"
-                  "    pop r2\n"
-                  "    pop r1\n"
-                  "    sub sp, 12\n");
+    // return our arg registers
+    while (1) {
+        const int* reg = (int*)vector_pop(&preservedRegs);
+        if (reg == NULL) {
+            break;
+        }
+        
+        fprintf(file, "    pop r%d\n", *reg);
+        return_register(*reg, 1);
+    }
+    vector_destroy(&preservedRegs);
+    
+    while (1) {
+        const int* reg = (int*)vector_pop(&nonPreservedRegs);
+        if (reg == NULL) {
+            break;
+        }
+        
+        return_register(*reg, 0);
+    }
+    vector_destroy(&nonPreservedRegs);
+    
+    
+    // return value will be left in r0, we need to change to our goal (returnIn)
+    if (returnIn != 0) {
+        fprintf(file, "    mov r%d, r0\n", returnIn);
+        fprintf(file, "    pop r0\n");
+    }
 }
 
 void codegen_statement(const StmtNode* stmt, FILE* file, const int loop) {
@@ -334,24 +452,47 @@ void codegen_statement(const StmtNode* stmt, FILE* file, const int loop) {
             break;
         }
         case STMT_VAR_DECL: {
-            fprintf(file, "    sub sp, 4  ; space for %s\n", stmt->var_decl.name);  // allocate space
             const int varOffset = current_r7_offset;
             map_add(variables, stmt->var_decl.name, varOffset);
             current_r7_offset += 4;
             
+            fprintf(file, "    sub sp, 4  ; space for %s (r7 - %d)\n", stmt->var_decl.name, varOffset);  // allocate space
+            
+            // get two scratch registers
+            int preserve1;
+            int preserve2;
+            const int scratch1 = borrow_register(&preserve1, -1);
+            const int scratch2 = borrow_register(&preserve2, -1);
+            if (preserve1) {
+                fprintf(stderr, "Error: preserving vardec registers is not currently supported.");  // TODO
+                exit(1);
+                fprintf(file, "    push r%d\n", scratch1);
+            }
+            if (preserve2) {
+                fprintf(stderr, "Error: preserving vardec registers is not currently supported.");  // TODO
+                exit(1);
+                fprintf(file, "    push r%d\n", scratch2);
+            }
+
             if (stmt->var_decl.array_size > 0) {
                 // the initialiser is basically the pointer value
-                fprintf(file, "    ; initialising %s\n", stmt->var_decl.name);
-                fprintf(file, "    mov r2, sp\n");
-                fprintf(file, "    sub r2, %d\n", stmt->var_decl.array_size * 4);
-                fprintf(file, "    mov @sp, r2\n");
+                fprintf(file, "    ; initialising %s (setting array pointer)\n", stmt->var_decl.name);
+                fprintf(file, "    mov r%d, sp\n", scratch2);
+                fprintf(file, "    sub r%d, %d\n", scratch2, stmt->var_decl.array_size * 4);
+                fprintf(file, "    mov @sp, r%d\n", scratch2);
                 
-                fprintf(file, "    sub sp, %d  ; ARRAY space for %s\n", 
+                fprintf(file, "    sub sp, %d  ; ARRAY[%d] space for %s\n", 
                     stmt->var_decl.array_size * 4, 
+                    stmt->var_decl.array_size,
                     stmt->var_decl.name);  // allocate array space
+                current_r7_offset += stmt->var_decl.array_size * 4;
             }
             
             if (stmt->var_decl.initializer == NULL) {
+                if (preserve2) fprintf(file, "    pop r%d\n", scratch2);
+                if (preserve1) fprintf(file, "    pop r%d\n", scratch1);
+                return_register(scratch2, preserve2);
+                return_register(scratch1, preserve1);
                 break;
             }
             
@@ -361,22 +502,32 @@ void codegen_statement(const StmtNode* stmt, FILE* file, const int loop) {
             }
             
             // actually set value
-            expr_in_reg(stmt->var_decl.initializer, file, 1);
+            expr_in_reg(stmt->var_decl.initializer, file, scratch1);
             
             fprintf(file, "    ; initialising %s\n", stmt->var_decl.name);
-            fprintf(file, "    mov r2, r7\n");
-            fprintf(file, "    sub r2, %d\n", varOffset);
-            fprintf(file, "    mov @r2, r1\n");
+            fprintf(file, "    mov r%d, r7\n", scratch2);
+            fprintf(file, "    sub r%d, %d\n", scratch2, varOffset);
+            fprintf(file, "    mov @r%d, r%d\n", scratch2, scratch1);
+            
+            if (preserve2) fprintf(file, "    pop r%d\n", scratch2);
+            if (preserve1) fprintf(file, "    pop r%d\n", scratch1);
+            return_register(scratch2, preserve2);
+            return_register(scratch1, preserve1);
             break;
         }
         case STMT_EXPR: {
             if (stmt->expr_stmt.expr->kind == EXPR_CALL) {
-                codegen_call(stmt->expr_stmt.expr, file);  // places result in r0 but will be ignored
+                codegen_call(stmt->expr_stmt.expr, file, 0);  // places result in r0 but will be ignored
                 break;
             }
 
             if (stmt->expr_stmt.expr->kind == EXPR_BINOP && stmt->expr_stmt.expr->binop.op == BIN_ASSIGN) {
-                expr_in_reg(stmt->expr_stmt.expr, file, 1);  // this will set, and clobber r1
+                int preserve;
+                const int scratch = borrow_register(&preserve, -1);
+                if (preserve) fprintf(file, "    push r%d\n", scratch);
+                expr_in_reg(stmt->expr_stmt.expr, file, scratch);  // we can clobber scratch
+                if (preserve) fprintf(file, "    pop r%d\n", scratch);
+                return_register(scratch, preserve);
                 break;
             }
                 
@@ -390,9 +541,13 @@ void codegen_statement(const StmtNode* stmt, FILE* file, const int loop) {
             break;
         }
         case STMT_IF: {
-            expr_in_reg(stmt->if_stmt.condition, file, 1);
+            int preserve;
+            const int scratch = borrow_register(&preserve, -1);
+            if (preserve) fprintf(file, "    push r%d\n", scratch);
+            
+            expr_in_reg(stmt->if_stmt.condition, file, scratch);
             const int branch = branch_num++;
-            fprintf(file, "    cmp r1, 1\n");
+            fprintf(file, "    cmp r%d, 1\n", scratch);
             fprintf(file, "    je .true_%d\n", branch);
             fprintf(file, "    ; false\n");
             if (stmt->if_stmt.else_stmt != NULL) {
@@ -402,14 +557,27 @@ void codegen_statement(const StmtNode* stmt, FILE* file, const int loop) {
             fprintf(file, ".true_%d:\n", branch);
             codegen_statement(stmt->if_stmt.then_stmt, file, loop);
             fprintf(file, ".done_%d:\n", branch);
+            
+            if (preserve) fprintf(file, "    pop r%d\n", scratch);
+            return_register(scratch, preserve);
             break;
         }
         case STMT_ASM: {
             fprintf(file, "\n; BEGIN INLINE ASM\n");
 
-            fprintf(file, "push r6\n");
+            Vector preserveRegs = create_vector(8, sizeof(int));
+            Vector nonPreserveRegs = create_vector(8, sizeof(int));
             for (int i = 0; i < stmt->asm_stmt.clobber_count; ++i) {
-                fprintf(file, "push %s\n", stmt->asm_stmt.clobbers[i]);
+                const int reg = stmt->asm_stmt.clobbers[i][1] - '0';
+                const int mustPreserve = borrow_specific_register(reg);
+                
+                if (!mustPreserve) {
+                    vector_push(&nonPreserveRegs, &reg);
+                    continue;
+                }
+
+                fprintf(file, "push r%d\n", reg);
+                vector_push(&preserveRegs, &reg);
             }
             
             if (stmt->asm_stmt.input_count > 3) {
@@ -448,39 +616,68 @@ void codegen_statement(const StmtNode* stmt, FILE* file, const int loop) {
                 fprintf(file, "sub r6, %d\n", offset);  // add the offset
                 fprintf(file, "mov @r6, %s\n", stmt->asm_stmt.output_constraints[i]);  // dereference to get value
             }
-            
-            for (int i = stmt->asm_stmt.clobber_count-1; i >= 0; i--) {
-                fprintf(file, "pop %s\n", stmt->asm_stmt.clobbers[i]);
+
+            while (1) {
+                const int* regPointer = vector_pop(&preserveRegs);
+                if (regPointer == NULL) {
+                    break;
+                }
+                
+                fprintf(file, "pop %d\n", *regPointer);
+                return_register(*regPointer, 1);
             }
+            vector_destroy(&preserveRegs);
+            while (1) {
+                const int* regPointer = vector_pop(&nonPreserveRegs);
+                if (regPointer == NULL) {
+                    break;
+                }
+                
+                return_register(*regPointer, 0);
+            }
+            vector_destroy(&nonPreserveRegs);
             
-            fprintf(file, "pop r6\n");
             fprintf(file, "\n; END INLINE ASM\n");
             break;
         }
         case STMT_WHILE: {
+            int preserve;
+            const int scratch = borrow_register(&preserve, -1);
+            if (preserve) fprintf(file, "    push r%d\n", scratch);
+            
             const int branch = branch_num++;
             fprintf(file, ".loop%d:\n", branch);
-            expr_in_reg(stmt->while_stmt.condition, file, 1);
-            fprintf(file, "    cmp r1, 0\n");
+            expr_in_reg(stmt->while_stmt.condition, file, scratch);
+            fprintf(file, "    cmp r%d, 0\n", scratch);
             fprintf(file, "    je .doneloop%d\n\n", branch);
             codegen_statement(stmt->while_stmt.body, file, branch);
             fprintf(file, ".continueloop%d:\n", branch);
             fprintf(file, "\n    jmp .loop%d\n", branch);
             fprintf(file, ".doneloop%d:\n", branch);
+            
+            if (preserve) fprintf(file, "    pop r%d\n", scratch);
+            return_register(scratch, preserve);
             break;
         }
         case STMT_FOR: {
+            int preserve;
+            const int scratch = borrow_register(&preserve, -1);
+            if (preserve) fprintf(file, "    push r%d\n", scratch);
+            
             codegen_statement(stmt->for_stmt.init, file, -1);
             const int branch = branch_num++;
             fprintf(file, ".loop%d:\n", branch);
-            expr_in_reg(stmt->for_stmt.condition, file, 1);
-            fprintf(file, "    cmp r1, 0\n");
+            expr_in_reg(stmt->for_stmt.condition, file, scratch);
+            fprintf(file, "    cmp r%d, 0\n", scratch);
             fprintf(file, "    je .doneloop%d\n\n", branch);
             codegen_statement(stmt->for_stmt.body, file, branch);
             fprintf(file, ".continueloop%d:\n", branch);
-            expr_in_reg(stmt->for_stmt.increment, file, 1);  // r1 i guess
+            expr_in_reg(stmt->for_stmt.increment, file, scratch);
             fprintf(file, "\n    jmp .loop%d\n", branch);
             fprintf(file, ".doneloop%d:\n", branch);
+            
+            if (preserve) fprintf(file, "    pop r%d\n", scratch);
+            return_register(scratch, preserve);
             break;
         }
         case STMT_BREAK: {
@@ -514,17 +711,21 @@ void codegen_function(const FunctionNode* function, FILE* file) {
     
     fprintf(file, "%s:\n", function->name);
     fprintf(file, "%s", prologue);
-
-    fprintf(file, "    ; Save arguments on stack\n");
+    
+    if (function->param_count > 0) fprintf(file, "    ; Save arguments on stack\n");
     for (int i = 0; i < function->param_count; i++) {
+        const ParamNode param = function->params[i];
+        
         if (i >= 3) {
-            break;
+            // already on the stack
+            // so what's the offset?
+            map_add(variables, param.name, -PROLOGUE_STACK_SIZE - (function->param_count-3) * 4 + (i - 2) * 4);
+            continue;
         }
 
-        fprintf(file, "    push %s\n", arg_registers[i]);
+        fprintf(file, "    push r%d\n", arg_registers[i]);
         
         // record param
-        const ParamNode param = function->params[i];
         map_add(variables, param.name, current_r7_offset);
         current_r7_offset += 4;
     }

@@ -55,10 +55,14 @@ void vector_push(Vector* vector, const void* element) {
     vector->length++;
 }
 
-void vector_pop(Vector* vector) {
-    if (vector->length > 0) {
-        vector->length--;
+void* vector_pop(Vector* vector) {
+    if (vector->length == 0) {
+        return NULL;
     }
+
+    vector->length--;
+    void* element = (char*)vector->elements + vector->length * vector->element_size;
+    return element;
 }
 
 // MAP

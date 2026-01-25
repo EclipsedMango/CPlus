@@ -27,7 +27,7 @@ void* vector_get(const Vector* vector, int index);
 void vector_set(const Vector* vector, int index, const void* element);
 
 void vector_push(Vector* vector, const void* element);
-void vector_pop(Vector* vector);
+void* vector_pop(Vector* vector);
 
 // MAP IMPL
 
