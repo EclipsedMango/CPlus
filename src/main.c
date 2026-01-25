@@ -1,11 +1,10 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "codegen/codegen_cat.h"
+// #include "codegen/codegen_cat.h"
 #include "codegen/codegen.h"
 
 #include "parser/parser.h"
-#include "parser/token_utils.h"
 #include "semantic/semantic.h"
 
 int main(const int argc, char *argv[]) {
@@ -54,24 +53,35 @@ int main(const int argc, char *argv[]) {
         return 1;
     }
 
-    printf("compiling %s\n", filename);
+    printf("Compiler: compiling %s\n", filename);
 
+    printf("Lexer: generating tokens\n");
     Lexer *lex = lexer_create("test.c", f);
+
+    printf("Diagnostics: crating diagnostic context\n");
     DiagnosticEngine *diag = diag_create();
+
+    printf("Parser: parsing tokens to AST\n");
     Parser *parser = parser_create(lex, diag);
+
     ProgramNode *prog = parser_parse_program(parser);
 
-    printf("parsing complete\n");
+    if (!diag_has_errors(diag)) {
+        SemanticAnalyzer *semantic = semantic_create(diag);
+        printf("SemanticAnalyzer: verifying code\n");
+        semantic_analyze_program(semantic, prog);
+        semantic_destroy(semantic);
+    }
 
-    analyze_program(program);
-    printf("semantic analysis complete\n");
+    diag_print_all(diag);
 
     if (useLLvm) {
-        codegen_program_llvm(program, "output.o");
-    } else {
-        codegen_program_cat(program, "output.asm");
+        codegen_program_llvm(prog, "output.o");
     }
-    printf("codegen complete\n");
+    //else {
+      //  codegen_program_cat(prog, "output.asm");
+    //}
+    printf("Compiler: codegen complete\n");
 
     parser_destroy(parser);
     lexer_destroy(lex);

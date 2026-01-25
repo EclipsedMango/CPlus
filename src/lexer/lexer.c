@@ -7,7 +7,7 @@
 #include <string.h>
 
 static const struct {
-    const char *text;
+    char *text;
     TokenType type;
 } keywords[] = {
     {"int", TOK_INT},
