@@ -56,10 +56,11 @@ int main(const int argc, char *argv[]) {
 
     printf("compiling %s\n", filename);
 
-    lexer_init(filename);
-    set_current_file(f);
+    Lexer *lex = lexer_create("test.c", f);
+    DiagnosticEngine *diag = diag_create();
+    Parser *parser = parser_create(lex, diag);
+    ProgramNode *prog = parser_parse_program(parser);
 
-    ProgramNode *program = parse_program();
     printf("parsing complete\n");
 
     analyze_program(program);
@@ -72,6 +73,9 @@ int main(const int argc, char *argv[]) {
     }
     printf("codegen complete\n");
 
+    parser_destroy(parser);
+    lexer_destroy(lex);
+    diag_destroy(diag);
     fclose(f);
     return 0;
 }

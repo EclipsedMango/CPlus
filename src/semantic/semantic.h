@@ -2,7 +2,7 @@
 #define C__SEMANTIC_H
 
 #include "../ast/ast.h"
-#include "../common.h"
+#include "../util/common.h"
 
 typedef struct Symbol {
     char *name;

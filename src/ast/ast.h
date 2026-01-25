@@ -3,7 +3,7 @@
 
 #include <stddef.h>
 
-#include "../common.h"
+#include "../util/common.h"
 
 // needs to match lexer
 typedef enum BinaryOp {
