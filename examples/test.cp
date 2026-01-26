@@ -1,3 +1,7 @@
+#define MAX_SIZE 100
+#define PI 3.14159
+#define SQUARE(x) ((x) * (x))
+
 int string_length(char* str) {
     int len = 0;
     while (*str != 0) {
@@ -351,6 +355,10 @@ int main() {
 
 	increment();
 	if (counter != 1) { status = 43; }
+
+    int[MAX_SIZE] arr;
+    float area = PI * 5 * 5;
+    int sq = SQUARE(5);
 
     return status;
 }

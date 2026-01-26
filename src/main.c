@@ -2,8 +2,11 @@
 #include <string.h>
 
 // #include "codegen/codegen_cat.h"
+#include <stdlib.h>
+
 #include "codegen/codegen.h"
 
+#include "preprocessor/preprocessor.h"
 #include "parser/parser.h"
 #include "semantic/semantic.h"
 
@@ -53,48 +56,78 @@ int main(const int argc, char *argv[]) {
         return 1;
     }
 
-    printf("Compiler: compiling %s\n", filename);
+    printf("Compiling %s...\n", filename);
 
-    printf("Lexer: generating tokens\n");
-    Lexer *lex = lexer_create("test.c", f);
-
-    printf("Diagnostics: crating diagnostic context\n");
     DiagnosticEngine *diag = diag_create();
 
-    printf("Parser: parsing tokens to AST\n");
-    Parser *parser = parser_create(lex, diag);
+    // pre-process
+    printf("Preprocessing...\n");
+    Preprocessor *prep = preprocessor_create(filename, diag);
+    char *preprocessed_text = preprocessor_process_file(prep, f);
+    fclose(f);
 
-    ProgramNode *prog = parser_parse_program(parser);
-
-    if (!diag_has_errors(diag)) {
-        SemanticAnalyzer *semantic = semantic_create(diag);
-        printf("SemanticAnalyzer: verifying code\n");
-        semantic_analyze_program(semantic, prog);
-        semantic_destroy(semantic);
-    }
-
-    diag_print_all(diag);
     if (diag_has_errors(diag)) {
-        remove("output.o");
-
-        parser_destroy(parser);
-        lexer_destroy(lex);
+        diag_print_all(diag);
+        free(preprocessed_text);
+        preprocessor_destroy(prep);
         diag_destroy(diag);
-        fclose(f);
         return 1;
     }
 
+    preprocessor_destroy(prep);
+
+    // lexing
+    printf("Lexing...\n");
+    FILE *temp = tmpfile();
+    fprintf(temp, "%s", preprocessed_text);
+    rewind(temp);
+    free(preprocessed_text);
+    Lexer *lexer = lexer_create(filename, temp);
+
+    // parsing
+    printf("Parsing...\n");
+    Parser *parser = parser_create(lexer, diag);
+    ProgramNode *program = parser_parse_program(parser);
+
+    if (diag_has_errors(diag)) {
+        diag_print_all(diag);
+        parser_destroy(parser);
+        lexer_destroy(lexer);
+        fclose(temp);
+        diag_destroy(diag);
+        return 1;
+    }
+
+    // semantic analysis
+    printf("Semantic analysis...\n");
+    SemanticAnalyzer *semantic = semantic_create(diag);
+    semantic_analyze_program(semantic, program);
+
+    if (diag_has_errors(diag)) {
+        diag_print_all(diag);
+        semantic_destroy(semantic);
+        parser_destroy(parser);
+        lexer_destroy(lexer);
+        fclose(temp);
+        diag_destroy(diag);
+        return 1;
+    }
+
+    semantic_destroy(semantic);
+
+    printf("Generating code...\n");
+
     if (useLLvm && !diag_has_errors(diag)) {
-        codegen_program_llvm(prog, "output.o");
-        printf("Compiler: codegen complete\n");
+        codegen_program_llvm(program, "output.o");
+        printf("Finished generating code.\n");
     }
     //else {
       //  codegen_program_cat(prog, "output.asm");
     //}
 
     parser_destroy(parser);
-    lexer_destroy(lex);
+    lexer_destroy(lexer);
+    fclose(temp);
     diag_destroy(diag);
-    fclose(f);
     return 0;
 }

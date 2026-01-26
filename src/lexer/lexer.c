@@ -80,20 +80,20 @@ void lexer_destroy(Lexer *lexer) {
     free(lexer);
 }
 
-Token lexer_next_token(Lexer *lex) {
-    if (!lex) {
+Token lexer_next_token(Lexer *lexer) {
+    if (!lexer) {
         return (Token){TOK_INVALID, NULL, {0, 0, NULL}};
     }
 
     while (1) {
-        const int c = skip_whitespace(lex);
+        const int c = skip_whitespace(lexer);
 
-        if (c == EOF) { return (Token){TOK_EOF, NULL, make_location(lex)}; }
-        if (c == '"') { return lex_string_literal(lex); }
-        if (isdigit(c)) { return lex_number_literal(lex, c); }
-        if (isalpha(c) || c == '_') { return lex_identifier_or_keyword(lex, c); }
+        if (c == EOF) { return (Token){TOK_EOF, NULL, make_location(lexer)}; }
+        if (c == '"') { return lex_string_literal(lexer); }
+        if (isdigit(c)) { return lex_number_literal(lexer, c); }
+        if (isalpha(c) || c == '_') { return lex_identifier_or_keyword(lexer, c); }
 
-        const Token tok = lex_operator_or_punct(lex, c);
+        const Token tok = lex_operator_or_punct(lexer, c);
         // tok.type == TOK_EOF means we hit a comment, continue looping
         if (tok.type != TOK_EOF) {
             return tok;
@@ -101,8 +101,8 @@ Token lexer_next_token(Lexer *lex) {
     }
 }
 
-SourceLocation lexer_current_location(const Lexer *lex) {
-    return make_location(lex);
+SourceLocation lexer_current_location(const Lexer *lexer) {
+    return make_location(lexer);
 }
 
 const char* token_type_to_string(TokenType type) {

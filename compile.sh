@@ -18,6 +18,6 @@ fi
 
 echo "Using: $llvm_lib"
 
-gcc src/*.c src/codegen/codegen.c src/lexer/*.c src/parser/*.c src/semantic/*.c src/util/*.c -o compiler $(llvm-config --cflags) $llvm_lib
+gcc src/*.c src/codegen/codegen.c src/lexer/*.c src/parser/*.c src/semantic/*.c src/util/*.c src/preprocessor/*.c -o compiler $(llvm-config --cflags) $llvm_lib
 echo "Compiler successfully compiled!"
 echo "Run with ./compiler <file-to-compile> [flags]"

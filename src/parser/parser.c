@@ -33,56 +33,56 @@ void parser_destroy(Parser *parser) {
     free(parser);
 }
 
-ProgramNode* parser_parse_program(Parser *p) {
+ProgramNode* parser_parse_program(Parser *parser) {
     Vector global_vars = create_vector(16, sizeof(GlobalVarNode*));
     Vector functions = create_vector(16, sizeof(FunctionNode*));
 
-    while (parser_current_token(p).type != TOK_EOF) {
-        if (parser_current_token(p).type == TOK_CONST) {
-            GlobalVarNode *global = parse_global_var(p);
+    while (parser_current_token(parser).type != TOK_EOF) {
+        if (parser_current_token(parser).type == TOK_CONST) {
+            GlobalVarNode *global = parse_global_var(parser);
             vector_push(&global_vars, &global);
             continue;
         }
 
         int lookahead_pos = 1;
 
-        if (parser_peek_token(p, lookahead_pos).type == TOK_LSQUARE) {
+        if (parser_peek_token(parser, lookahead_pos).type == TOK_LSQUARE) {
             lookahead_pos++;
 
-            while (parser_peek_token(p, lookahead_pos).type != TOK_RSQUARE) {
+            while (parser_peek_token(parser, lookahead_pos).type != TOK_RSQUARE) {
                 lookahead_pos++;
             }
 
             lookahead_pos++;
         }
 
-        while (parser_peek_token(p, lookahead_pos).type == TOK_ASTERISK) {
+        while (parser_peek_token(parser, lookahead_pos).type == TOK_ASTERISK) {
             lookahead_pos++;
         }
 
         lookahead_pos++;
 
-        TokenType next = parser_peek_token(p, lookahead_pos).type;
+        const TokenType next = parser_peek_token(parser, lookahead_pos).type;
         if (next == TOK_LPAREN) {
             // function decl
-            FunctionNode *fn = parse_function(p);
+            FunctionNode *fn = parse_function(parser);
             vector_push(&functions, &fn);
         } else if (next == TOK_SEMI || next == TOK_ASSIGN) {
             // global var decl
-            GlobalVarNode *global = parse_global_var(p);
+            GlobalVarNode *global = parse_global_var(parser);
             vector_push(&global_vars, &global);
         } else {
-            diag_error(p->diagnostics, parser_peek_token(p, lookahead_pos).location,
+            diag_error(parser->diagnostics, parser_peek_token(parser, lookahead_pos).location,
                       "Expected '(' (for function) or ';' or '=' (for global variable), got '%s'",
                       token_type_to_string(next)
             );
 
-            while (parser_current_token(p).type != TOK_SEMI && parser_current_token(p).type != TOK_LBRACE && parser_current_token(p).type != TOK_EOF) {
-                parser_advance(p);
+            while (parser_current_token(parser).type != TOK_SEMI && parser_current_token(parser).type != TOK_LBRACE && parser_current_token(parser).type != TOK_EOF) {
+                parser_advance(parser);
             }
 
-            if (parser_current_token(p).type == TOK_SEMI) {
-                parser_advance(p);
+            if (parser_current_token(parser).type == TOK_SEMI) {
+                parser_advance(parser);
             }
         }
     }
@@ -113,11 +113,11 @@ void parser_update_token_buffer(Parser *p) {
     p->token_buffer[TOKEN_BUFFER_SIZE - 1] = lexer_next_token(p->lexer);
 }
 
-Token parser_current_token(Parser *p) {
+Token parser_current_token(const Parser *p) {
     return p->token_buffer[0];
 }
 
-Token parser_peek_token(Parser *p, int n) {
+Token parser_peek_token(const Parser *p, const int n) {
     if (n < 0 || n >= TOKEN_BUFFER_SIZE) {
         diag_error(p->diagnostics, lexer_current_location(p->lexer), "Internal error: peek_token index %d out of bounds", n);
         return (Token){TOK_INVALID, NULL, {0, 0, NULL}};
@@ -143,7 +143,7 @@ void parser_expect(Parser *p, const TokenType type) {
     parser_advance(p);
 }
 
-TypeKind token_to_typekind(Parser *p, const TokenType token) {
+TypeKind token_to_typekind(const Parser *p, const TokenType token) {
     switch (token) {
         case TOK_INT: return TYPE_INT;
         case TOK_LONG: return TYPE_LONG;

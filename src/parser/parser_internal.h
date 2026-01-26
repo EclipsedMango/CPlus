@@ -18,12 +18,12 @@ struct Parser {
 void parser_init_token_buffer(Parser *p);
 void parser_update_token_buffer(Parser *p);
 
-Token parser_current_token(Parser *p);
-Token parser_peek_token(Parser *p, int n);
+Token parser_current_token(const Parser *p);
+Token parser_peek_token(const Parser *p, int n);
 void parser_advance(Parser *p);
 void parser_expect(Parser *p, TokenType type);
 
-TypeKind token_to_typekind(Parser *p, TokenType token);
+TypeKind token_to_typekind(const Parser *p, TokenType token);
 
 // forward decl, implemented in different files but shared internally
 

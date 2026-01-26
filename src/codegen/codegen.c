@@ -1093,8 +1093,6 @@ void codegen_program_llvm(const ProgramNode* program, const char* output_file) {
     module = LLVMModuleCreateWithNameInContext("my_module", context);
     builder = LLVMCreateBuilderInContext(context);
 
-    printf("LLVM codegen initialized\n");
-
     // global variables
     for (int i = 0; i < program->global_count; ++i) {
         const GlobalVarNode *global_var = program->globals[i];
@@ -1144,8 +1142,6 @@ void codegen_program_llvm(const ProgramNode* program, const char* output_file) {
         codegen_function(program->functions[i]);
     }
 
-    printf("All functions generated\n");
-
     char *error = NULL;
     LLVMVerifyModule(module, LLVMAbortProcessAction, &error);
     LLVMDisposeMessage(error);
@@ -1156,8 +1152,6 @@ void codegen_program_llvm(const ProgramNode* program, const char* output_file) {
     if (LLVMPrintModuleToFile(module, ir_file, &error) != 0) {
         fprintf(stderr, "Error writing IR: %s\n", error);
         LLVMDisposeMessage(error);
-    } else {
-        printf("LLVM IR written to %s\n", ir_file);
     }
 
     // write object file
@@ -1183,8 +1177,6 @@ void codegen_program_llvm(const ProgramNode* program, const char* output_file) {
         LLVMDisposeMessage(error);
         exit(1);
     }
-
-    printf("Object file written to %s\n", output_file);
 
     // cleanup
     LLVMDisposeTargetMachine(machine);
