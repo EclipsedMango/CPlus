@@ -28,6 +28,8 @@ This project is a **work in progress!** Currently supported features:
 - arrays and arrays decaying to pointers
 - scope defined variables and global variables
 - const keyword, that makes variables immutable
+- #define directive (which acts as constexpr)
+- #include directive
 
 -----
 ### Getting started
