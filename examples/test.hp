@@ -1,8 +1,2 @@
-struct Person {
-    int age = 23;
-    string name = "Bob";
-};
 
-impl Person {
-    void Greetings();
-};
+#define INCLUDE_TEST_VALUE 50

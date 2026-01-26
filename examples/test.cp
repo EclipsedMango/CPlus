@@ -1,3 +1,6 @@
+
+#include "test.hp"
+
 #define MAX_SIZE 100
 #define PI 3.14159
 #define SQUARE(x) ((x) * (x))
@@ -359,6 +362,9 @@ int main() {
     int[MAX_SIZE] arr;
     float area = PI * 5 * 5;
     int sq = SQUARE(5);
+
+    if (sq != 25) { status = 44; }
+    if (INCLUDE_TEST_VALUE != 50) { status = 45; }
 
     return status;
 }

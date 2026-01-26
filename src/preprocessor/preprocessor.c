@@ -16,13 +16,26 @@ struct Preprocessor {
     int column;
 
     Vector expanding_macros;
+    Vector including_stack;
+    const char *current_dir;
 };
 
 static char* process_line(Preprocessor *prep, const char *line);
-static bool parse_define_directive(Preprocessor *prep, const char *line);
+static bool parse_define_directive(const Preprocessor *prep, const char *line);
+
+static char* process_include(Preprocessor *prep, const char *filename, bool is_system);
+static char* parse_include_directive(Preprocessor *prep, const char *line);
+
+static char* find_include_file(const Preprocessor *prep, const char *filename, const bool is_system);
+static bool is_currently_including(const Preprocessor *prep, const char *filepath);
+
 static char* expand_macros(Preprocessor *prep, const char *text);
 static char* expand_function_macro(Preprocessor *prep, Macro *macro, const char *args_start);
 static bool is_macro_expanding(Preprocessor *prep, const char *name);
+
+static char* get_directory(const char *path);
+static char* build_path(const char *dir, const char *filename);
+static bool file_exists(const char *path);
 
 Preprocessor* preprocessor_create(const char *filename, DiagnosticEngine *diag) {
     Preprocessor *prep = malloc(sizeof(Preprocessor));
@@ -34,6 +47,8 @@ Preprocessor* preprocessor_create(const char *filename, DiagnosticEngine *diag) 
     prep->line = 1;
     prep->column = 1;
     prep->expanding_macros = create_vector(8, sizeof(char*));
+    prep->including_stack = create_vector(8, sizeof(char*));
+    prep->current_dir = get_directory(filename);
 
     return prep;
 }
@@ -43,6 +58,12 @@ void preprocessor_destroy(Preprocessor *prep) {
 
     macro_table_destroy(prep->macros);
     vector_destroy(&prep->expanding_macros);
+    vector_destroy(&prep->including_stack);
+
+    if (prep->current_dir) {
+        free((char*)prep->current_dir);
+    }
+
     free(prep);
 }
 
@@ -122,13 +143,80 @@ static char* process_line(Preprocessor *prep, const char *line) {
             // TODO: Parse undef
             return NULL;
         }
+        if (strncmp(line, "include", 7) == 0) {
+            return parse_include_directive(prep, line + 7);
+        }
         // ddd more directives such as #ifdef, #include, etc.
     }
 
     return expand_macros(prep, line);
 }
 
-static bool parse_define_directive(Preprocessor *prep, const char *line) {
+static char* process_include(Preprocessor *prep, const char *filename, const bool is_system) {
+    char *filepath = find_include_file(prep, filename, is_system);
+    if (!filepath) {
+        diag_error(prep->diagnostics, (SourceLocation){prep->line, prep->column, prep->filename}, "Cannot find include file '%s'", filename);
+        return strdup("");
+    }
+
+    if (is_currently_including(prep, filepath)) {
+        diag_error(prep->diagnostics, (SourceLocation){prep->line, prep->column, prep->filename}, "Circular include detected: '%s'", filepath);
+        free(filepath);
+        return strdup("");
+    }
+
+    char *filepath_copy = strdup(filepath);
+    vector_push(&prep->including_stack, &filepath_copy);
+
+    const char *saved_filename = prep->filename;
+    const char *saved_dir = prep->current_dir;
+    const int saved_line = prep->line;
+    const int saved_column = prep->column;
+
+    prep->filename = filepath;
+    prep->current_dir = get_directory(filepath);
+    prep->line = 1;
+    prep->column = 1;
+
+    FILE *f = fopen(filepath, "r");
+    if (!f) {
+        diag_error(prep->diagnostics, (SourceLocation){prep->line, prep->column, prep->filename}, "Cannot open file '%s'", filepath);
+
+        free((char*)prep->current_dir);
+        prep->current_dir = saved_dir;
+        prep->filename = saved_filename;
+        vector_pop(&prep->including_stack);
+        free(filepath_copy);
+        free(filepath);
+        return strdup("");
+    }
+
+    fseek(f, 0, SEEK_END);
+    const long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    char *content = malloc(size + 1);
+    fread(content, 1, size, f);
+    content[size] = '\0';
+    fclose(f);
+
+    char *preprocessed = preprocessor_process(prep, content);
+    free(content);
+
+    free((char*)prep->current_dir);
+    prep->filename = saved_filename;
+    prep->current_dir = saved_dir;
+    prep->line = saved_line;
+    prep->column = saved_column;
+
+    vector_pop(&prep->including_stack);
+    free(filepath_copy);
+    free(filepath);
+
+    return preprocessed;
+}
+
+static bool parse_define_directive(const Preprocessor *prep, const char *line) {
     while (isspace(*line)) line++;
 
     const char *name_start = line;
@@ -221,6 +309,84 @@ static bool parse_define_directive(Preprocessor *prep, const char *line) {
     free(name);
 
     return true;
+}
+
+static char* parse_include_directive(Preprocessor *prep, const char *line) {
+    while (isspace(*line)) line++;
+
+    char delimiter;
+    bool is_system;
+
+    if (*line == '"') {
+        delimiter = '"';
+        is_system = false;
+    } else if (*line == '<') {
+        delimiter = '<';
+        is_system = true;
+    } else {
+        diag_error(prep->diagnostics, (SourceLocation){prep->line, prep->column, prep->filename}, "Expected '\"' or '<' after #include");
+        return strdup("");
+    }
+
+    line++;
+
+    const char *filename_start = line;
+    const char *filename_end = line;
+
+    while (*filename_end && *filename_end != delimiter) {
+        filename_end++;
+    }
+
+    if (*filename_end != delimiter) {
+        diag_error(prep->diagnostics, (SourceLocation){prep->line, prep->column, prep->filename}, "Unknown #include directive");
+        return strdup("");
+    }
+
+    const size_t filename_len = filename_end - filename_start;
+    if (filename_len == 0) {
+        diag_error(prep->diagnostics, (SourceLocation){prep->line, prep->column, prep->filename}, "Empty filename in #include");
+        return strdup("");
+    }
+
+    char *filename = strndup(filename_start, filename_len);
+    char *result = process_include(prep, filename, is_system);
+    free(filename);
+
+    return result;
+}
+
+static char* find_include_file(const Preprocessor *prep, const char *filename, const bool is_system) {
+    // TODO: add system includes
+    if (is_system) {
+        return NULL;
+    }
+
+    if (file_exists(filename)) {
+        return strdup(filename);
+    }
+
+    if (prep->current_dir) {
+        char *path = build_path(prep->current_dir, filename);
+        if (file_exists(path)) {
+            return path;
+        }
+
+        free(path);
+    }
+
+    // failed
+    return NULL;
+}
+
+static bool is_currently_including(const Preprocessor *prep, const char *filepath) {
+    for (int i = 0; i < prep->including_stack.length; i++) {
+        char **path_ptr = vector_get(&prep->including_stack, i);
+        if (strcmp(*path_ptr, filepath) == 0) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 static char* expand_macros(Preprocessor *prep, const char *text) {
@@ -378,6 +544,45 @@ static bool is_macro_expanding(Preprocessor *prep, const char *name) {
         if (strcmp(*expanding, name) == 0) {
             return true;
         }
+    }
+
+    return false;
+}
+
+static char* get_directory(const char* path) {
+    const char *last_sep = NULL;
+    for (const char *p = path; *p; p++) {
+        if (*p == '/' || *p == '\\') {
+            last_sep = p;
+        }
+    }
+
+    // current dir
+    if (!last_sep) {
+        return strdup(".");
+    }
+
+    const size_t dir_len = last_sep - path;
+    return strndup(path, dir_len);
+}
+
+static char* build_path(const char *dir, const char *filename) {
+    // current dir
+    if (strcmp(dir, ".") == 0) {
+        return strdup(filename);
+    }
+
+    const size_t len = strlen(dir) + 1 + strlen(filename) + 1;
+    char *path = malloc(len);
+    snprintf(path, len, "%s/%s", dir, filename);
+    return path;
+}
+
+static bool file_exists(const char *path) {
+    FILE *f = fopen(path, "r");
+    if (f) {
+        fclose(f);
+        return true;
     }
 
     return false;
