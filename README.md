@@ -30,6 +30,7 @@ This project is a **work in progress!** Currently supported features:
 - const keyword, that makes variables immutable
 - #define directive (which acts as constexpr)
 - #include directive
+- basic casting
 
 -----
 ### Getting started
