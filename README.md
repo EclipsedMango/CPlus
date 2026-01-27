@@ -31,6 +31,7 @@ This project is a **work in progress!** Currently supported features:
 - #define directive (which acts as constexpr)
 - #include directive
 - basic casting
+- incrementing, decrementing, +=, -=, *=, /=, %= expressions
 
 -----
 ### Getting started
