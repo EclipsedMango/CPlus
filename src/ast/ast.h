@@ -24,6 +24,11 @@ typedef enum BinaryOp {
 
     // assignment
     BIN_ASSIGN,
+    BIN_ADD_ASSIGN,
+    BIN_SUB_ASSIGN,
+    BIN_MUL_ASSIGN,
+    BIN_DIV_ASSIGN,
+    BIN_MOD_ASSIGN,
 
     // logical operators
     BIN_LOGICAL_AND,
@@ -47,7 +52,11 @@ typedef enum UnaryOp {
     UNARY_NEG,
     UNARY_NOT,
     UNARY_DEREF,
-    UNARY_ADDR_OF
+    UNARY_ADDR_OF,
+    UNARY_PRE_INC,
+    UNARY_PRE_DEC,
+    UNARY_POST_INC,
+    UNARY_POST_DEC,
 } UnaryOp;
 
 typedef struct ExprNode {

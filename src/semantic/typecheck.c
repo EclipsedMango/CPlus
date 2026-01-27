@@ -82,5 +82,5 @@ bool is_logical_op(const BinaryOp op) {
 }
 
 bool is_assignment_op(const BinaryOp op) {
-    return op == BIN_ASSIGN;
+    return op == BIN_ASSIGN || op == BIN_ADD_ASSIGN || op == BIN_SUB_ASSIGN || op == BIN_MUL_ASSIGN || op == BIN_DIV_ASSIGN;
 }

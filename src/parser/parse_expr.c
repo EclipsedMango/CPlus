@@ -25,15 +25,29 @@ ExprNode* parse_expression(Parser *p) {
 ExprNode* parse_assignment(Parser *p) {
     ExprNode *left = parse_logical_or(p);
 
-    if (parser_current_token(p).type == TOK_ASSIGN) {
-        const SourceLocation loc = parser_current_token(p).location;
+    const Token t = parser_current_token(p);
+    BinaryOp op;
+    bool is_assign = true;
+
+    switch (t.type) {
+        case TOK_ASSIGN:          op = BIN_ASSIGN; break;
+        case TOK_PLUS_EQUALS:     op = BIN_ADD_ASSIGN; break;
+        case TOK_SUBTRACT_EQUALS: op = BIN_SUB_ASSIGN; break;
+        case TOK_ASTERISK_EQUALS: op = BIN_MUL_ASSIGN; break;
+        case TOK_DIVIDE_EQUALS:   op = BIN_DIV_ASSIGN; break;
+        case TOK_MODULO_EQUALS:   op = BIN_MOD_ASSIGN; break;
+        default: is_assign = false; break;
+    }
+
+    if (is_assign) {
+        const SourceLocation loc = t.location;
         parser_advance(p);
         ExprNode *right = parse_assignment(p);
 
         ExprNode *expr = malloc(sizeof(ExprNode));
         expr->kind = EXPR_BINOP;
         expr->location = loc;
-        expr->binop.op = BIN_ASSIGN;
+        expr->binop.op = op;
         expr->binop.left = left;
         expr->binop.right = right;
         expr->pointer_level = 0;
@@ -209,6 +223,32 @@ ExprNode* parse_unary(Parser *p) {
         }
     }
 
+    if (parser_current_token(p).type == TOK_PLUS_PLUS) {
+        parser_advance(p);
+        ExprNode *operand = parse_unary(p);
+
+        ExprNode *expr = malloc(sizeof(ExprNode));
+        expr->kind = EXPR_UNARY;
+        expr->location = loc;
+        expr->unary.op = UNARY_PRE_INC;
+        expr->unary.operand = operand;
+        expr->pointer_level = 0;
+        return expr;
+    }
+
+    if (parser_current_token(p).type == TOK_SUBTRACT_SUBTRACT) {
+        parser_advance(p);
+        ExprNode *operand = parse_unary(p);
+
+        ExprNode *expr = malloc(sizeof(ExprNode));
+        expr->kind = EXPR_UNARY;
+        expr->location = loc;
+        expr->unary.op = UNARY_PRE_DEC;
+        expr->unary.operand = operand;
+        expr->pointer_level = 0;
+        return expr;
+    }
+
     if (parser_current_token(p).type == TOK_ASTERISK) {
         parser_advance(p);
         ExprNode *operand = parse_unary(p);
@@ -306,7 +346,6 @@ ExprNode* parse_postfix(Parser *p) {
         expr->text = strdup(t.lexeme);
         expr->location = t.location;
         expr->pointer_level = 0;
-
     } else if (t.type == TOK_STRING_LITERAL) {
         parser_advance(p);
         expr = malloc(sizeof(ExprNode));
@@ -314,7 +353,6 @@ ExprNode* parse_postfix(Parser *p) {
         expr->text = strdup(t.lexeme);
         expr->location = t.location;
         expr->pointer_level = 0;
-
     } else if (t.type == TOK_IDENTIFIER) {
         const Token name_tok = t;
         parser_advance(p);
@@ -346,7 +384,6 @@ ExprNode* parse_postfix(Parser *p) {
             expr->call.arg_count = args.length;
             expr->location = name_tok.location;
             expr->pointer_level = 0;
-
         } else {
             // variable
             expr = malloc(sizeof(ExprNode));
@@ -354,13 +391,11 @@ ExprNode* parse_postfix(Parser *p) {
             expr->text = strdup(name_tok.lexeme);
             expr->location = name_tok.location;
             expr->pointer_level = 0;
-
         }
     } else if (t.type == TOK_LPAREN) {
         parser_advance(p);
         expr = parse_expression(p);
         parser_expect(p, TOK_RPAREN);
-
     } else {
         diag_error(p->diagnostics, t.location, "Unexpected token in expression: '%s'", token_type_to_string(t.type));
 
@@ -375,20 +410,52 @@ ExprNode* parse_postfix(Parser *p) {
         return expr;
     }
 
-    // postfix operators
-    while (parser_current_token(p).type == TOK_LSQUARE) {
-        parser_advance(p);
-        ExprNode *index = parse_expression(p);
-        parser_expect(p, TOK_RSQUARE);
+    while (true) {
+        if (parser_current_token(p).type == TOK_LSQUARE) {
+            parser_advance(p);
+            ExprNode *index = parse_expression(p);
+            parser_expect(p, TOK_RSQUARE);
 
-        ExprNode *array_expr = malloc(sizeof(ExprNode));
-        array_expr->kind = EXPR_ARRAY_INDEX;
-        array_expr->array_index.array = expr;
-        array_expr->array_index.index = index;
-        array_expr->location = expr->location;
-        array_expr->pointer_level = 0;
+            ExprNode *array_expr = malloc(sizeof(ExprNode));
+            array_expr->kind = EXPR_ARRAY_INDEX;
+            array_expr->array_index.array = expr;
+            array_expr->array_index.index = index;
+            array_expr->location = expr->location;
+            array_expr->pointer_level = 0;
 
-        expr = array_expr;
+            expr = array_expr;
+            continue;
+        }
+
+        if (parser_current_token(p).type == TOK_PLUS_PLUS) {
+            parser_advance(p);
+
+            ExprNode *post_inc = malloc(sizeof(ExprNode));
+            post_inc->kind = EXPR_UNARY;
+            post_inc->location = expr->location;
+            post_inc->unary.op = UNARY_POST_INC;
+            post_inc->unary.operand = expr;
+            post_inc->pointer_level = 0;
+
+            expr = post_inc;
+            continue;
+        }
+
+        if (parser_current_token(p).type == TOK_SUBTRACT_SUBTRACT) {
+            parser_advance(p);
+
+            ExprNode *post_dec = malloc(sizeof(ExprNode));
+            post_dec->kind = EXPR_UNARY;
+            post_dec->location = expr->location;
+            post_dec->unary.op = UNARY_POST_DEC;
+            post_dec->unary.operand = expr;
+            post_dec->pointer_level = 0;
+
+            expr = post_dec;
+            continue;
+        }
+
+        break;
     }
 
     return expr;

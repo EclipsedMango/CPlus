@@ -412,15 +412,59 @@ static Token lex_operator_or_punct(Lexer *lex, const int c) {
                 return (Token){TOK_EOF, NULL, loc };
             }
 
+            if (next == '=') {
+                return (Token){.type = TOK_DIVIDE_EQUALS, .lexeme = "/=", loc};
+            }
+
             unread_char(lex, next);
             return (Token){.type = TOK_DIVIDE, .lexeme = "/", loc};
         }
+        case '+': {
+            next = next_char(lex);
+            if (next == '+') {
+                return (Token){TOK_PLUS_PLUS, .lexeme = "++", loc};
+            }
+
+            if (next == '=') {
+                return (Token){TOK_PLUS_EQUALS, .lexeme = "+=", loc};
+            }
+
+            unread_char(lex, next);
+            return (Token){TOK_PLUS, .lexeme = "+", loc};
+        }
+        case '-': {
+            next = next_char(lex);
+            if (next == '-') {
+                return (Token){TOK_SUBTRACT_SUBTRACT, .lexeme = "-", loc};
+            }
+
+            if (next == '=') {
+                return (Token){TOK_SUBTRACT_EQUALS, .lexeme = "-=", loc};
+            }
+
+            unread_char(lex, next);
+            return (Token){TOK_SUBTRACT, .lexeme = "-", loc};
+        }
 
         // single-char operators
-        case '+': return (Token){TOK_PLUS, .lexeme = "+", loc};
-        case '-': return (Token){TOK_SUBTRACT, .lexeme = "-", loc};
-        case '*': return (Token){TOK_ASTERISK, .lexeme = "*", loc};
-        case '%': return (Token){TOK_MODULO, .lexeme = "%", loc};
+        case '*': {
+            next = next_char(lex);
+            if (next == '=') {
+                return (Token){TOK_ASTERISK_EQUALS, .lexeme = "*=", loc};
+            }
+
+            unread_char(lex, next);
+            return (Token){TOK_ASTERISK, .lexeme = "*", loc};
+        }
+        case '%': {
+            next = next_char(lex);
+            if (next == '=') {
+                return (Token){TOK_MODULO_EQUALS, .lexeme = "%=", loc};
+            }
+
+            unread_char(lex, next);
+            return (Token){TOK_MODULO, .lexeme = "%", loc};
+        }
 
         // Punctuation
         case '(': return (Token){TOK_LPAREN, .lexeme = "(", loc};

@@ -30,6 +30,8 @@ static int global_var_capacity = 0;
 static LLVMBasicBlockRef current_break_target = NULL;
 static LLVMBasicBlockRef current_continue_target = NULL;
 
+static LLVMValueRef codegen_expression(const ExprNode* expr);
+
 static void add_local_var(const char *name, const LLVMValueRef value, const TypeKind type, const int pointer_level, int array_size) {
     if (local_var_count >= local_var_capacity) {
         local_var_capacity = local_var_capacity == 0 ? 16 : local_var_capacity * 2;
@@ -161,6 +163,56 @@ static LLVMValueRef convert_to_type(LLVMValueRef value, TypeKind from_type, Type
     return value;
 }
 
+static LLVMValueRef codegen_lvalue_address(const ExprNode *expr) {
+    if (expr->kind == EXPR_VAR) {
+        const LLVMValueRef var = lookup_var(expr->text);
+        if (!var) {
+            fprintf(stderr, "Codegen error: Undefined variable '%s'\n", expr->text);
+            exit(1);
+        }
+        return var;
+    }
+    else if (expr->kind == EXPR_UNARY && expr->unary.op == UNARY_DEREF) {
+        return codegen_expression(expr->unary.operand);
+    }
+    else if (expr->kind == EXPR_ARRAY_INDEX) {
+        const ExprNode *array_expr = expr->array_index.array;
+        const ExprNode *index_expr = expr->array_index.index;
+
+        LLVMValueRef array_ptr;
+        if (array_expr->kind == EXPR_VAR) {
+            array_ptr = lookup_var(array_expr->text);
+        } else {
+            array_ptr = codegen_expression(array_expr);
+        }
+
+        LLVMValueRef index_val = codegen_expression(index_expr);
+
+        CodegenSymbol *sym = NULL;
+        if (array_expr->kind == EXPR_VAR) {
+            sym = lookup_var_full(array_expr->text);
+        }
+
+        if (sym && sym->array_size > 0) {
+            LLVMTypeRef base_element_type = get_llvm_type_with_pointers(sym->type, sym->pointer_level - 1);
+            LLVMTypeRef array_type = LLVMArrayType(base_element_type, sym->array_size);
+            LLVMValueRef indices[2] = { LLVMConstInt(LLVMInt32TypeInContext(context), 0, 0), index_val };
+            return LLVMBuildGEP2(builder, array_type, array_ptr, indices, 2, "arrayaddr");
+        } else {
+            LLVMTypeRef element_type = get_llvm_type_with_pointers(expr->type, expr->pointer_level);
+            if (array_expr->kind == EXPR_VAR) {
+                LLVMTypeRef ptr_type = get_llvm_type_with_pointers(array_expr->type, array_expr->pointer_level);
+                array_ptr = LLVMBuildLoad2(builder, ptr_type, array_ptr, "loadptr");
+            }
+
+            return LLVMBuildGEP2(builder, element_type, array_ptr, &index_val, 1, "arrayaddr");
+        }
+    }
+
+    fprintf(stderr, "Expression is not an lvalue\n");
+    exit(1);
+}
+
 static LLVMValueRef codegen_expression(const ExprNode* expr) {
     if (!expr) {
         fprintf(stderr, "Error: null expression in codegen\n");
@@ -230,6 +282,46 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
             if (!expr->binop.right) {
                 fprintf(stderr, "Error: binary op has null right operand\n");
                 exit(1);
+            }
+
+            if (expr->binop.op == BIN_ADD_ASSIGN || expr->binop.op == BIN_SUB_ASSIGN || expr->binop.op == BIN_MUL_ASSIGN || expr->binop.op == BIN_DIV_ASSIGN) {
+
+                LLVMValueRef lhs_ptr = codegen_lvalue_address(expr->binop.left);
+                LLVMTypeRef lhs_type = get_llvm_type_with_pointers(expr->binop.left->type, expr->binop.left->pointer_level);
+                LLVMValueRef lhs_val = LLVMBuildLoad2(builder, lhs_type, lhs_ptr, "loadlhs");
+                LLVMValueRef rhs_val = codegen_expression(expr->binop.right);
+                LLVMValueRef result = NULL;
+
+                if (expr->binop.op == BIN_ADD_ASSIGN) {
+                     if (expr->binop.left->pointer_level > 0) {
+                         result = LLVMBuildGEP2(builder, LLVMInt8TypeInContext(context), lhs_val, &rhs_val, 1, "padd");
+                     } else if (is_floating_type(expr->binop.left->type)) {
+                         result = LLVMBuildFAdd(builder, lhs_val, rhs_val, "fadd");
+                     } else {
+                         result = LLVMBuildAdd(builder, lhs_val, rhs_val, "add");
+                     }
+                }
+                else if (expr->binop.op == BIN_SUB_ASSIGN) {
+                     if (expr->binop.left->pointer_level > 0) {
+                         LLVMValueRef neg_rhs = LLVMBuildNeg(builder, rhs_val, "neg");
+                         result = LLVMBuildGEP2(builder, LLVMInt8TypeInContext(context), lhs_val, &neg_rhs, 1, "psub");
+                     } else if (is_floating_type(expr->binop.left->type)) {
+                         result = LLVMBuildFSub(builder, lhs_val, rhs_val, "fsub");
+                     } else {
+                         result = LLVMBuildSub(builder, lhs_val, rhs_val, "sub");
+                     }
+                }
+                else if (expr->binop.op == BIN_MUL_ASSIGN) {
+                     if (is_floating_type(expr->binop.left->type)) result = LLVMBuildFMul(builder, lhs_val, rhs_val, "fmul");
+                     else result = LLVMBuildMul(builder, lhs_val, rhs_val, "mul");
+                }
+                else if (expr->binop.op == BIN_DIV_ASSIGN) {
+                     if (is_floating_type(expr->binop.left->type)) result = LLVMBuildFDiv(builder, lhs_val, rhs_val, "fdiv");
+                     else result = LLVMBuildSDiv(builder, lhs_val, rhs_val, "div");
+                }
+
+                LLVMBuildStore(builder, result, lhs_ptr);
+                return result;
             }
 
             LLVMValueRef left = codegen_expression(expr->binop.left);
@@ -503,6 +595,41 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
             }
         }
         case EXPR_UNARY: {
+            if (expr->unary.op == UNARY_PRE_INC || expr->unary.op == UNARY_PRE_DEC || expr->unary.op == UNARY_POST_INC || expr->unary.op == UNARY_POST_DEC) {
+                LLVMValueRef ptr = codegen_lvalue_address(expr->unary.operand);
+                LLVMTypeRef type = get_llvm_type_with_pointers(expr->type, expr->pointer_level);
+
+                LLVMValueRef current_val = LLVMBuildLoad2(builder, type, ptr, "oldval");
+
+                LLVMValueRef step;
+                if (expr->type == TYPE_FLOAT || expr->type == TYPE_DOUBLE) {
+                    step = LLVMConstReal(type, 1.0);
+                } else {
+                    step = LLVMConstInt(LLVMInt32TypeInContext(context), 1, 0);
+                }
+
+                LLVMValueRef new_val;
+                bool is_inc = (expr->unary.op == UNARY_PRE_INC || expr->unary.op == UNARY_POST_INC);
+
+                if (expr->pointer_level > 0) {
+                    if (!is_inc) step = LLVMBuildNeg(builder, step, "negstep");
+                    if (LLVMGetIntTypeWidth(LLVMTypeOf(step)) != 64) step = LLVMBuildSExt(builder, step, LLVMInt64Type(), "sext");
+
+                    new_val = LLVMBuildGEP2(builder, get_llvm_type_with_pointers(expr->type, expr->pointer_level-1), current_val, &step, 1, "ptrinc");
+                } else if (expr->type == TYPE_FLOAT || expr->type == TYPE_DOUBLE) {
+                    new_val = is_inc ? LLVMBuildFAdd(builder, current_val, step, "finc") : LLVMBuildFSub(builder, current_val, step, "fdec");
+                } else {
+                    new_val = is_inc ? LLVMBuildAdd(builder, current_val, step, "inc") : LLVMBuildSub(builder, current_val, step, "dec");
+                }
+
+                LLVMBuildStore(builder, new_val, ptr);
+                if (expr->unary.op == UNARY_PRE_INC || expr->unary.op == UNARY_PRE_DEC) {
+                    return new_val;
+                } else {
+                    return current_val;
+                }
+            }
+
             if (expr->unary.op == UNARY_DEREF) {
                 // Evaluate the operand to get the pointer value.
                 // Note: For EXPR_VAR referring to an array, this correctly returns the decayed pointer.

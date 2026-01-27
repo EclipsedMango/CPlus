@@ -190,7 +190,7 @@ int main() {
     }
 
     int f_sum = 0;
-    for (int i = 0; i < 5; i = i + 1) {
+    for (int i = 0; i < 5; i++) {
         f_sum = f_sum + i;
     }
 
@@ -223,9 +223,9 @@ int main() {
 
     int outer_count = 0;
     int inner_count = 0;
-    for (int i = 0; i < 3; i = i + 1) {
+    for (int i = 0; i < 3; i++) {
         outer_count = outer_count + 1;
-        for (int j = 0; j < 2; j = j + 1) {
+        for (int j = 0; j < 2; j++) {
             inner_count = inner_count + 1;
         }
     }
@@ -252,7 +252,7 @@ int main() {
     if (arr1[2] != 99) { status = 30; }
 
     int[10] arr2;
-    for (int i = 0; i < 10; i = i + 1) {
+    for (int i = 0; i < 10; i++) {
         arr2[i] = i * 2;
     }
 
@@ -261,7 +261,7 @@ int main() {
     if (arr2[9] != 18) { status = 31; }
 
     int arr_sum = 0;
-    for (int i = 0; i < 10; i = i + 1) {
+    for (int i = 0; i < 10; i++) {
         arr_sum = arr_sum + arr2[i];
     }
     if (arr_sum != 90) { status = 32; }
@@ -321,7 +321,7 @@ int main() {
     max_arr[4] = 23;
 
     int max_val = max_arr[0];
-    for (int i = 1; i < 5; i = i + 1) {
+    for (int i = 1; i < 5; i++) {
         if (max_arr[i] > max_val) {
             max_val = max_arr[i];
         }

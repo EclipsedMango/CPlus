@@ -177,6 +177,32 @@ static void analyze_expression(SemanticAnalyzer *analyzer, ExprNode *expr) {
                     expr->pointer_level = expr->unary.operand->pointer_level + 1;
                     break;
                 }
+                case UNARY_PRE_INC:
+                case UNARY_PRE_DEC:
+                case UNARY_POST_INC:
+                case UNARY_POST_DEC: {
+                    if (expr->unary.operand->kind != EXPR_VAR && !(expr->unary.operand->kind == EXPR_UNARY && expr->unary.operand->unary.op == UNARY_DEREF) &&
+                        expr->unary.operand->kind != EXPR_ARRAY_INDEX) {
+                        diag_error(analyzer->diagnostics, expr->location, "Expression is not assignable");
+                    }
+
+                    if (expr->unary.operand->kind == EXPR_VAR) {
+                        const Symbol *sym = scope_lookup_recursive(analyzer->current_scope, expr->unary.operand->text);
+                        if (sym && sym->is_const) {
+                            diag_error(analyzer->diagnostics, expr->location, "Cannot increment/decrement const variable");
+                        }
+                    }
+
+                    analyze_expression(analyzer, expr->unary.operand);
+
+                    if (!is_numeric_type(expr->unary.operand->type) && expr->unary.operand->pointer_level == 0) {
+                        diag_error(analyzer->diagnostics, expr->location, "Invalid type for increment/decrement");
+                    }
+
+                    expr->type = expr->unary.operand->type;
+                    expr->pointer_level = expr->unary.operand->pointer_level;
+                    break;
+                }
             }
             break;
         }
@@ -226,12 +252,15 @@ static void analyze_expression(SemanticAnalyzer *analyzer, ExprNode *expr) {
 
             if (is_assignment_op(expr->binop.op)) {
                 // Check if left side is an lvalue
-                if (expr->binop.left->kind != EXPR_VAR &&
-                    !(expr->binop.left->kind == EXPR_UNARY &&
-                      expr->binop.left->unary.op == UNARY_DEREF) &&
-                    expr->binop.left->kind != EXPR_ARRAY_INDEX) {
-                    diag_error(analyzer->diagnostics, expr->location,
-                              "Left-hand side of assignment must be a variable, dereferenced pointer, or array element");
+                if (expr->binop.left->kind != EXPR_VAR && !(expr->binop.left->kind == EXPR_UNARY &&
+                      expr->binop.left->unary.op == UNARY_DEREF) && expr->binop.left->kind != EXPR_ARRAY_INDEX) {
+                    diag_error(analyzer->diagnostics, expr->location, "Left-hand side of assignment must be a variable, dereferenced pointer, or array element");
+                }
+
+                if (expr->binop.op != BIN_ASSIGN) {
+                    if (!is_numeric_type(lhs) && expr->binop.left->pointer_level == 0) {
+                        diag_error(analyzer->diagnostics, expr->location, "Invalid types for compound assignment");
+                    }
                 }
 
                 // Check for const assignment
