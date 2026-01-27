@@ -203,6 +203,12 @@ ExprNode* parse_term(Parser *p) {
 ExprNode* parse_unary(Parser *p) {
     const SourceLocation loc = parser_current_token(p).location;
 
+    if (parser_current_token(p).type == TOK_LPAREN) {
+        if (is_next_token_a_type(p)) {
+            return parse_cast(p);
+        }
+    }
+
     if (parser_current_token(p).type == TOK_ASTERISK) {
         parser_advance(p);
         ExprNode *operand = parse_unary(p);
@@ -256,6 +262,36 @@ ExprNode* parse_unary(Parser *p) {
     }
 
     return parse_postfix(p);
+}
+
+ExprNode* parse_cast(Parser *p) {
+    const SourceLocation loc = parser_current_token(p).location;
+
+    parser_expect(p, TOK_LPAREN);
+
+    const Token type_tok = parser_current_token(p);
+    const TypeKind target_type = token_to_typekind(p, type_tok.type);
+    parser_advance(p);
+
+    int target_pointer_level = 0;
+    while (parser_current_token(p).type == TOK_ASTERISK) {
+        target_pointer_level++;
+        parser_advance(p);
+    }
+
+    parser_expect(p, TOK_RPAREN);
+
+    ExprNode *operand = parse_unary(p);
+    ExprNode *expr = malloc(sizeof(ExprNode));
+    expr->kind = EXPR_CAST;
+    expr->location = loc;
+    expr->type = target_type;
+    expr->pointer_level = target_pointer_level;
+    expr->cast.target_type = target_type;
+    expr->cast.target_pointer_level = target_pointer_level;
+    expr->cast.operand = operand;
+
+    return expr;
 }
 
 ExprNode* parse_postfix(Parser *p) {

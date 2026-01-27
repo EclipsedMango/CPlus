@@ -59,6 +59,7 @@ typedef struct ExprNode {
         EXPR_UNARY,
         EXPR_CALL,
         EXPR_ARRAY_INDEX,
+        EXPR_CAST,
     } kind;
     SourceLocation location;
     TypeKind type;
@@ -83,6 +84,11 @@ typedef struct ExprNode {
             struct ExprNode *array;
             struct ExprNode *index;
         } array_index;
+        struct {
+            TypeKind target_type;
+            int target_pointer_level;
+            struct ExprNode *operand;
+        } cast;
     };
 } ExprNode;
 

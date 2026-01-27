@@ -1,0 +1,72 @@
+
+void* malloc(int length) {
+    void* result;
+
+    // Syscall 9 (mmap) on Linux x86_64
+    // Arguments:
+    // rdi = addr (0 = let kernel choose)
+    // rsi = length
+    // rdx = prot (3 = PROT_READ | PROT_WRITE)
+    // r10 = flags (34 = MAP_PRIVATE | MAP_ANONYMOUS)
+    // r8  = fd (-1)
+    // r9  = offset (0)
+
+    asm(
+        "xor rdi, rdi\n\t mov rsi, $1\n\t mov rdx, 3\n\t mov r10, 34\n\t mov r8, -1\n\t xor r9, r9\n\t mov rax, 9\n\t syscall\n\t mov $0, rax"
+        : "=r"(result)      // Output $0
+        : "r"(length)       // Input $1
+        : "rax", "rdi", "rsi", "rdx", "r10", "r8", "r9", "rcx", "r11", "memory"
+    );
+
+    // Check for errors (MAP_FAILED is usually -1)
+    // Cast to long to perform signed comparison
+    long ptr_val;
+    ptr_val = (long)result;
+
+    // Syscall errors return values between -4095 and -1
+    if (ptr_val < 0) {
+        return (void*)0;
+    }
+
+    return result;
+}
+
+void free(void* ptr, int length) {
+    // Syscall 11 (munmap)
+    // rdi = addr
+    // rsi = length
+
+    asm(
+        "mov rax, 11  \n\t mov rdi, $0  \n\t mov rsi, $1  \n\t syscall"
+        :
+        : "r"(ptr), "r"(length)
+        : "rax", "rdi", "rsi", "rcx", "r11", "memory"
+    );
+}
+
+int strlen(char* str) {
+    int len = 0;
+    while (*str != 0) {
+        str = str + 1;
+        len = len + 1;
+    }
+
+    return len;
+}
+
+void print(string msg) {
+    int len = strlen(msg);
+    asm("mov rax, 1\n\t mov rdi, 1\n\t mov rsi, $0\n\t mov rdx, $1\n\t syscall"
+        :
+        : "r"(msg), "r"(len)
+        : "rax", "rdi", "rsi", "rdx"
+    );
+}
+
+void exit(int status) {
+    asm("mov rax, 60\n\t mov rdi, $0\n\t syscall"
+        :
+        : "r"(status)
+        : "rax", "rdi"
+    );
+}

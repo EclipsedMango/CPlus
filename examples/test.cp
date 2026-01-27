@@ -1,29 +1,10 @@
 
+#include "stdlib.hp"
 #include "test.hp"
 
 #define MAX_SIZE 100
 #define PI 3.14159
 #define SQUARE(x) ((x) * (x))
-
-int string_length(char* str) {
-    int len = 0;
-    while (*str != 0) {
-        str = str + 1;
-        len = len + 1;
-    }
-
-    return len;
-}
-
-void print(string msg) {
-    int len = string_length(msg);
-    asm(
-        "mov rax, 1\n\t mov rdi, 1\n\t mov rsi, $0\n\t mov rdx, $1\n\t syscall"
-        :
-        : "r"(msg), "r"(len)
-        : "rax", "rdi", "rsi", "rdx"
-    );
-}
 
 // Function returning int pointer
 int* set_value(int* ptr, int val) {
@@ -45,7 +26,7 @@ int counter = 0;
 void increment() { counter = counter + 1; }
 
 int main() {
-    print("Hello world!\n");
+    print("Hello World!\n");
 
     int status = 0;
 
@@ -366,5 +347,8 @@ int main() {
     if (sq != 25) { status = 44; }
     if (INCLUDE_TEST_VALUE != 50) { status = 45; }
 
-    return status;
+    float ff = 3.14;
+    int xxx = (int)ff;
+
+    return xxx;
 }

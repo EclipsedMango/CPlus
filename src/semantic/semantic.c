@@ -314,6 +314,20 @@ static void analyze_expression(SemanticAnalyzer *analyzer, ExprNode *expr) {
             expr->pointer_level = expr->array_index.array->pointer_level - 1;
             break;
         }
+        case EXPR_CAST: {
+            analyze_expression(analyzer, expr->cast.operand);
+
+            expr->type = expr->cast.target_type;
+            expr->pointer_level = expr->cast.target_pointer_level;
+
+            if (expr->cast.operand->pointer_level > 0 && expr->pointer_level == 0) {
+                if (expr->type != TYPE_INT && expr->type != TYPE_LONG) {
+                    diag_warning(analyzer->diagnostics, expr->location, "Cast from pointer to non-integer type");
+                }
+            }
+
+            break;
+        }
     }
 }
 

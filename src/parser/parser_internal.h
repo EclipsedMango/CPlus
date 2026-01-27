@@ -25,6 +25,9 @@ void parser_expect(Parser *p, TokenType type);
 
 TypeKind token_to_typekind(const Parser *p, TokenType token);
 
+bool is_type_token(TokenType type);
+bool is_next_token_a_type(const Parser *p);
+
 // forward decl, implemented in different files but shared internally
 
 // from parse_expr.c
@@ -37,6 +40,7 @@ ExprNode* parse_relational(Parser *p);
 ExprNode* parse_additive(Parser *p);
 ExprNode* parse_term(Parser *p);
 ExprNode* parse_unary(Parser *p);
+ExprNode* parse_cast(Parser *p);
 ExprNode* parse_postfix(Parser *p);
 
 // from parse_stmt.c

@@ -158,3 +158,22 @@ TypeKind token_to_typekind(const Parser *p, const TokenType token) {
             return TYPE_INT;  // error recovery, default to int
     }
 }
+
+bool is_type_token(const TokenType type) {
+    switch (type) {
+        case TOK_INT:
+        case TOK_LONG:
+        case TOK_CHAR:
+        case TOK_FLOAT:
+        case TOK_DOUBLE:
+        case TOK_STRING_KW:
+        case TOK_BOOL:
+        case TOK_VOID: return true;
+        default: return false;
+    }
+}
+
+bool is_next_token_a_type(const Parser *p) {
+    const Token next = parser_peek_token(p, 1);
+    return is_type_token(next.type);
+}

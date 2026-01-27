@@ -9,6 +9,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "../semantic/typecheck.h"
+
 typedef struct {
     char *name;
     LLVMValueRef value;
@@ -166,9 +168,24 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
     }
     switch (expr->kind) {
         case EXPR_NUMBER: {
-            if (expr->type == TYPE_BOOLEAN) {
+            if (expr->type == TYPE_FLOAT) {
+                float value = atof(expr->text);
+                return LLVMConstReal(LLVMFloatTypeInContext(context), value);
+            }
+
+            if (expr->type == TYPE_DOUBLE) {
+                double value = atof(expr->text);
+                return LLVMConstReal(LLVMDoubleTypeInContext(context), value);
+            }
+
+            if (expr->type == TYPE_CHAR) {
                 const int value = atoi(expr->text);
-                return LLVMConstInt(LLVMInt1TypeInContext(context), value != 0, 0);
+                return LLVMConstInt(LLVMInt8TypeInContext(context), value, 0);
+            }
+
+            if (expr->type == TYPE_LONG) {
+                const long value = atol(expr->text);
+                return LLVMConstInt(LLVMInt64TypeInContext(context), value, 0);
             }
 
             const int value = atoi(expr->text);
@@ -226,10 +243,24 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
                 TypeKind right_type = expr->binop.right->type;
 
                 if (left_type != right_type) {
+                    // Char/Int
                     if (left_type == TYPE_CHAR && right_type == TYPE_INT) {
                         left = convert_to_type(left, TYPE_CHAR, TYPE_INT);
                     } else if (left_type == TYPE_INT && right_type == TYPE_CHAR) {
                         right = convert_to_type(right, TYPE_CHAR, TYPE_INT);
+                    }
+
+                    // Int/Long
+                    else if (left_type == TYPE_INT && right_type == TYPE_LONG) {
+                        left = convert_to_type(left, TYPE_INT, TYPE_LONG);
+                    } else if (left_type == TYPE_LONG && right_type == TYPE_INT) {
+                        right = convert_to_type(right, TYPE_INT, TYPE_LONG);
+                    }
+                    // Char/Long
+                    else if (left_type == TYPE_CHAR && right_type == TYPE_LONG) {
+                        left = convert_to_type(left, TYPE_CHAR, TYPE_LONG);
+                    } else if (left_type == TYPE_LONG && right_type == TYPE_CHAR) {
+                        right = convert_to_type(right, TYPE_CHAR, TYPE_LONG);
                     }
                 }
             }
@@ -240,35 +271,98 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
                     LLVMTypeRef right_type = LLVMTypeOf(right);
 
                     if (LLVMGetTypeKind(left_type) == LLVMPointerTypeKind) {
-                        // Pointer + integer: use GEP
-                        // Use i8 as the element type for pointer arithmetic
                         LLVMTypeRef i8_type = LLVMInt8TypeInContext(context);
                         return LLVMBuildGEP2(builder, i8_type, left, &right, 1, "addtmp");
-                    } else if (LLVMGetTypeKind(right_type) == LLVMPointerTypeKind) {
-                        // Integer + pointer: use GEP
+                    }
+
+                    if (LLVMGetTypeKind(right_type) == LLVMPointerTypeKind) {
                         LLVMTypeRef i8_type = LLVMInt8TypeInContext(context);
                         return LLVMBuildGEP2(builder, i8_type, right, &left, 1, "addtmp");
-                    } else {
-                        // Regular integer addition
-                        return LLVMBuildAdd(builder, left, right, "addtmp");
                     }
+
+                    if (LLVMGetTypeKind(left_type) == LLVMFloatTypeKind || LLVMGetTypeKind(left_type) == LLVMDoubleTypeKind ||
+                        LLVMGetTypeKind(right_type) == LLVMFloatTypeKind || LLVMGetTypeKind(right_type) == LLVMDoubleTypeKind) {
+                        if (LLVMGetTypeKind(left_type) == LLVMIntegerTypeKind) {
+                            LLVMTypeRef target_type = LLVMTypeOf(right);
+                            left = LLVMBuildSIToFP(builder, left, target_type, "itof");
+                        }
+
+                        if (LLVMGetTypeKind(right_type) == LLVMIntegerTypeKind) {
+                            LLVMTypeRef target_type = LLVMTypeOf(left);
+                            right = LLVMBuildSIToFP(builder, right, target_type, "itof");
+                        }
+
+                        return LLVMBuildFAdd(builder, left, right, "addtmp");
+                    }
+
+                    return LLVMBuildAdd(builder, left, right, "addtmp");
                 }
                 case BIN_SUB: {
-                    // Check if left operand is a pointer
                     LLVMTypeRef left_type = LLVMTypeOf(left);
+                    LLVMTypeRef right_type = LLVMTypeOf(right);
 
                     if (LLVMGetTypeKind(left_type) == LLVMPointerTypeKind) {
-                        // Pointer - integer: negate the offset and use GEP
                         LLVMValueRef neg_right = LLVMBuildNeg(builder, right, "negtmp");
                         LLVMTypeRef i8_type = LLVMInt8TypeInContext(LLVMGetGlobalContext());
                         return LLVMBuildGEP2(builder, i8_type, left, &neg_right, 1, "subtmp");
-                    } else {
-                        // Regular integer subtraction
-                        return LLVMBuildSub(builder, left, right, "subtmp");
                     }
+                    if (LLVMGetTypeKind(left_type) == LLVMFloatTypeKind || LLVMGetTypeKind(left_type) == LLVMDoubleTypeKind ||
+                        LLVMGetTypeKind(right_type) == LLVMFloatTypeKind || LLVMGetTypeKind(right_type) == LLVMDoubleTypeKind) {
+                        if (LLVMGetTypeKind(left_type) == LLVMIntegerTypeKind) {
+                            LLVMTypeRef target_type = LLVMTypeOf(right);
+                            left = LLVMBuildSIToFP(builder, left, target_type, "itof");
+                        }
+                        if (LLVMGetTypeKind(right_type) == LLVMIntegerTypeKind) {
+                            LLVMTypeRef target_type = LLVMTypeOf(left);
+                            right = LLVMBuildSIToFP(builder, right, target_type, "itof");
+                        }
+                        return LLVMBuildFSub(builder, left, right, "subtmp");
+                    }
+
+                    return LLVMBuildSub(builder, left, right, "subtmp");
                 }
-                case BIN_MUL: return LLVMBuildMul(builder, left, right, "multmp");
-                case BIN_DIV: return LLVMBuildSDiv(builder, left, right, "divtmp");
+                case BIN_MUL: {
+                    LLVMTypeRef left_type = LLVMTypeOf(left);
+                    LLVMTypeRef right_type = LLVMTypeOf(right);
+
+                    if (LLVMGetTypeKind(left_type) == LLVMFloatTypeKind || LLVMGetTypeKind(left_type) == LLVMDoubleTypeKind ||
+                        LLVMGetTypeKind(right_type) == LLVMFloatTypeKind || LLVMGetTypeKind(right_type) == LLVMDoubleTypeKind) {
+                        if (LLVMGetTypeKind(left_type) == LLVMIntegerTypeKind) {
+                            LLVMTypeRef target_type = LLVMTypeOf(right);
+                            left = LLVMBuildSIToFP(builder, left, target_type, "itof");
+                        }
+
+                        if (LLVMGetTypeKind(right_type) == LLVMIntegerTypeKind) {
+                            LLVMTypeRef target_type = LLVMTypeOf(left);
+                            right = LLVMBuildSIToFP(builder, right, target_type, "itof");
+                        }
+
+                        return LLVMBuildFMul(builder, left, right, "multmp");
+                    }
+
+                    return LLVMBuildMul(builder, left, right, "multmp");
+                }
+                case BIN_DIV: {
+                    LLVMTypeRef left_type = LLVMTypeOf(left);
+                    LLVMTypeRef right_type = LLVMTypeOf(right);
+
+                    if (LLVMGetTypeKind(left_type) == LLVMFloatTypeKind || LLVMGetTypeKind(left_type) == LLVMDoubleTypeKind ||
+                        LLVMGetTypeKind(right_type) == LLVMFloatTypeKind || LLVMGetTypeKind(right_type) == LLVMDoubleTypeKind) {
+                        if (LLVMGetTypeKind(left_type) == LLVMIntegerTypeKind) {
+                            LLVMTypeRef target_type = LLVMTypeOf(right);
+                            left = LLVMBuildSIToFP(builder, left, target_type, "itof");
+                        }
+
+                        if (LLVMGetTypeKind(right_type) == LLVMIntegerTypeKind) {
+                            LLVMTypeRef target_type = LLVMTypeOf(left);
+                            right = LLVMBuildSIToFP(builder, right, target_type, "itof");
+                        }
+
+                        return LLVMBuildFDiv(builder, left, right, "divtmp");
+                    }
+
+                    return LLVMBuildSDiv(builder, left, right, "divtmp");
+                }
                 case BIN_ASSIGN: {
                     LLVMValueRef rhs_val = codegen_expression(expr->binop.right);
                     LLVMValueRef lhs_ptr;
@@ -342,12 +436,54 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
                     LLVMBuildStore(builder, rhs_val, lhs_ptr);
                     return rhs_val;
                 }
-                case BIN_LESS: return LLVMBuildICmp(builder, LLVMIntSLT, left, right, "cmptmp");
-                case BIN_GREATER: return LLVMBuildICmp(builder, LLVMIntSGT, left, right, "cmptmp");
-                case BIN_LESS_EQ: return LLVMBuildICmp(builder, LLVMIntSLE, left, right, "cmptmp");
-                case BIN_GREATER_EQ: return LLVMBuildICmp(builder, LLVMIntSGE, left, right, "cmptmp");
-                case BIN_EQUAL: return LLVMBuildICmp(builder, LLVMIntEQ, left, right, "cmptmp");
-                case BIN_NOT_EQUAL: return LLVMBuildICmp(builder, LLVMIntNE, left, right, "neqtmp");
+                case BIN_LESS: {
+                    LLVMTypeRef left_type = LLVMTypeOf(left);
+                    if (LLVMGetTypeKind(left_type) == LLVMFloatTypeKind || LLVMGetTypeKind(left_type) == LLVMDoubleTypeKind) {
+                        return LLVMBuildFCmp(builder, LLVMRealOLT, left, right, "cmptmp");
+                    }
+
+                    return LLVMBuildICmp(builder, LLVMIntSLT, left, right, "cmptmp");
+                }
+                case BIN_GREATER: {
+                    LLVMTypeRef left_type = LLVMTypeOf(left);
+                    if (LLVMGetTypeKind(left_type) == LLVMFloatTypeKind || LLVMGetTypeKind(left_type) == LLVMDoubleTypeKind) {
+                        return LLVMBuildFCmp(builder, LLVMRealOGT, left, right, "cmptmp");
+                    }
+
+                    return LLVMBuildICmp(builder, LLVMIntSGT, left, right, "cmptmp");
+                }
+                case BIN_LESS_EQ: {
+                    LLVMTypeRef left_type = LLVMTypeOf(left);
+                    if (LLVMGetTypeKind(left_type) == LLVMFloatTypeKind || LLVMGetTypeKind(left_type) == LLVMDoubleTypeKind) {
+                        return LLVMBuildFCmp(builder, LLVMRealOLE, left, right, "cmptmp");
+                    }
+
+                    return LLVMBuildICmp(builder, LLVMIntSLE, left, right, "cmptmp");
+                }
+                case BIN_GREATER_EQ: {
+                    LLVMTypeRef left_type = LLVMTypeOf(left);
+                    if (LLVMGetTypeKind(left_type) == LLVMFloatTypeKind || LLVMGetTypeKind(left_type) == LLVMDoubleTypeKind) {
+                        return LLVMBuildFCmp(builder, LLVMRealOGE, left, right, "cmptmp");
+                    }
+
+                    return LLVMBuildICmp(builder, LLVMIntSGE, left, right, "cmptmp");
+                }
+                case BIN_EQUAL: {
+                    LLVMTypeRef left_type = LLVMTypeOf(left);
+                    if (LLVMGetTypeKind(left_type) == LLVMFloatTypeKind || LLVMGetTypeKind(left_type) == LLVMDoubleTypeKind) {
+                        return LLVMBuildFCmp(builder, LLVMRealOEQ, left, right, "cmptmp");
+                    }
+
+                    return LLVMBuildICmp(builder, LLVMIntEQ, left, right, "cmptmp");
+                }
+                case BIN_NOT_EQUAL: {
+                    LLVMTypeRef left_type = LLVMTypeOf(left);
+                    if (LLVMGetTypeKind(left_type) == LLVMFloatTypeKind || LLVMGetTypeKind(left_type) == LLVMDoubleTypeKind) {
+                        return LLVMBuildFCmp(builder, LLVMRealONE, left, right, "neqtmp");
+                    }
+
+                    return LLVMBuildICmp(builder, LLVMIntNE, left, right, "neqtmp");
+                }
                 case BIN_LOGICAL_AND: {
                     // LLVM Logical And works on i1 (1-bit integers)
                     // Convert operands to boolean (i1) by checking != 0
@@ -536,6 +672,79 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
 
             // Load the value from the computed address
             return LLVMBuildLoad2(builder, element_type, element_ptr, "arrayval");
+        }
+        case EXPR_CAST: {
+            LLVMValueRef operand = codegen_expression(expr->cast.operand);
+
+            TypeKind from_type = expr->cast.operand->type;
+            TypeKind to_type = expr->cast.target_type;
+            int from_ptr = expr->cast.operand->pointer_level;
+            int to_ptr = expr->cast.target_pointer_level;
+
+            // pointer to pointer (or same type)
+            if (from_ptr > 0 && to_ptr > 0) {
+                LLVMTypeRef target_llvm = get_llvm_type_with_pointers(to_type, to_ptr);
+                return LLVMBuildBitCast(builder, operand, target_llvm, "cast");
+            }
+
+            // int to pointer (inttoptr)
+            if (from_ptr == 0 && to_ptr > 0 && (from_type == TYPE_INT || from_type == TYPE_LONG)) {
+                LLVMTypeRef target_llvm = get_llvm_type_with_pointers(to_type, to_ptr);
+                return LLVMBuildIntToPtr(builder, operand, target_llvm, "cast");
+            }
+
+            // pointer to int (ptrtoint)
+            if (from_ptr > 0 && to_ptr == 0 && (to_type == TYPE_INT || to_type == TYPE_LONG)) {
+                LLVMTypeRef target_llvm = get_llvm_type(to_type);
+                return LLVMBuildPtrToInt(builder, operand, target_llvm, "cast");
+            }
+
+            // int to int (different sizes) so truncate or extend
+            if (from_ptr == 0 && to_ptr == 0 && is_integer_type(from_type) && is_integer_type(to_type)) {
+                LLVMTypeRef from_llvm = get_llvm_type(from_type);
+                LLVMTypeRef to_llvm = get_llvm_type(to_type);
+
+                unsigned from_bits = LLVMGetIntTypeWidth(from_llvm);
+                unsigned to_bits = LLVMGetIntTypeWidth(to_llvm);
+
+                if (from_bits < to_bits) {
+                    return LLVMBuildSExt(builder, operand, to_llvm, "cast");
+                }
+
+                if (from_bits > to_bits) {
+                    return LLVMBuildTrunc(builder, operand, to_llvm, "cast");
+                }
+
+                return operand;
+            }
+
+            // int to float
+            if (is_integer_type(from_type) && is_floating_type(to_type)) {
+                LLVMTypeRef to_llvm = get_llvm_type(to_type);
+                return LLVMBuildSIToFP(builder, operand, to_llvm, "cast");
+            }
+
+            // float to int
+            if (is_floating_type(from_type) && is_integer_type(to_type)) {
+                LLVMTypeRef to_llvm = get_llvm_type(to_type);
+                return LLVMBuildFPToSI(builder, operand, to_llvm, "cast");
+            }
+
+            // float to float (different precision)
+            if (is_floating_type(from_type) && is_floating_type(to_type)) {
+                LLVMTypeRef to_llvm = get_llvm_type(to_type);
+                if (to_type == TYPE_DOUBLE) {
+                    return LLVMBuildFPExt(builder, operand, to_llvm, "cast");
+                }
+
+                return LLVMBuildFPTrunc(builder, operand, to_llvm, "cast");
+            }
+
+            // default bitcast (shouldnt normally reach here)
+            LLVMTypeRef target_llvm = get_llvm_type_with_pointers(to_type, to_ptr);
+            fflush(stderr);  // Force output before potential hang
+            LLVMValueRef result = LLVMBuildBitCast(builder, operand, target_llvm, "cast");
+            return result;
         }
         default: {
             fprintf(stderr, "Unsupported expression kind: %d\n", expr->kind);
@@ -794,7 +1003,7 @@ static void codegen_statement(const StmtNode* stmt) {
                     if (output_expr->kind == EXPR_VAR) {
                         output_vals[i] = lookup_var(output_expr->text);
                         CodegenSymbol *sym = lookup_var_full(output_expr->text);
-                        output_types[i] = get_llvm_type(sym->type);
+                        output_types[i] = get_llvm_type_with_pointers(sym->type, sym->pointer_level);
                     } else {
                         fprintf(stderr, "Output operand must be a variable\n");
                         exit(1);
