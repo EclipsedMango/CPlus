@@ -1,5 +1,7 @@
 compiler
 output.*
+runtime.o
+a.out
 program
 CMakeLists.txt
 .idea

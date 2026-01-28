@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "scope.h"
+#include "builtins.h"
 
 // internal state
 struct SemanticAnalyzer {
@@ -41,6 +42,8 @@ bool semantic_analyze_program(SemanticAnalyzer *analyzer, ProgramNode *program) 
 
     Scope *global = scope_create(NULL, SCOPE_GLOBAL);
     analyzer->current_scope = global;
+
+    register_builtins(global);
 
     for (int i = 0; i < program->function_count; i++) {
         const FunctionNode *func = program->functions[i];
@@ -319,8 +322,24 @@ static void analyze_expression(SemanticAnalyzer *analyzer, ExprNode *expr) {
                 break;
             }
 
+            if (expr->call.arg_count != func_sym->parameters.length) {
+                diag_error(analyzer->diagnostics, expr->location, "'%s' has incorrect number of parameters", expr->call.function_name);
+                expr->type = TYPE_INT;
+                expr->pointer_level = 0;
+                break;
+            }
+
             for (int i = 0; i < expr->call.arg_count; i++) {
-                analyze_expression(analyzer, expr->call.args[i]);
+                ExprNode *arg_expr = expr->call.args[i];
+                analyze_expression(analyzer, arg_expr);
+
+                const Symbol **param_ptr = vector_get(&func_sym->parameters, i);
+                const Symbol *param_sym = *param_ptr;
+
+                if (!types_compatible_with_pointers(param_sym->type, param_sym->pointer_level, arg_expr->type, arg_expr->pointer_level)) {
+                    diag_error(analyzer->diagnostics, arg_expr->location, "%s function argument %d mismatch: Expected '%s', got '%s'", func_sym->name, i + 1, type_to_string(param_sym->type), type_to_string(arg_expr->type));
+                    break;
+                }
             }
 
             expr->type = func_sym->type;
@@ -560,6 +579,9 @@ static bool analyze_statement(SemanticAnalyzer *analyzer, StmtNode *stmt, const 
 }
 
 static void analyze_function(SemanticAnalyzer *analyzer, const FunctionNode *func, Scope *global) {
+    Symbol *func_sym = scope_lookup(global, func->name);
+    func_sym->parameters = create_vector(func->param_count, sizeof(Symbol*));
+
     Scope *func_scope = scope_create(global, SCOPE_FUNCTION);
     analyzer->current_scope = func_scope;
 
@@ -574,15 +596,25 @@ static void analyze_function(SemanticAnalyzer *analyzer, const FunctionNode *fun
             continue;
         }
 
-        Symbol *sym = malloc(sizeof(Symbol));
-        sym->name = strdup(param->name);
-        sym->kind = SYM_PARAMETER;
-        sym->type = param->type;
-        sym->pointer_level = param->pointer_level;
-        sym->is_const = param->is_const;
-        sym->location = param->location;
+        Symbol *scope_sym = malloc(sizeof(Symbol));
+        scope_sym->name = strdup(param->name);
+        scope_sym->kind = SYM_PARAMETER;
+        scope_sym->type = param->type;
+        scope_sym->pointer_level = param->pointer_level;
+        scope_sym->is_const = param->is_const;
+        scope_sym->location = param->location;
 
-        scope_add_symbol(func_scope, sym);
+        scope_add_symbol(func_scope, scope_sym);
+
+        Symbol *sig_sym = malloc(sizeof(Symbol));
+        sig_sym->name = strdup(param->name);
+        sig_sym->kind = SYM_PARAMETER;
+        sig_sym->type = param->type;
+        sig_sym->pointer_level = param->pointer_level;
+        sig_sym->is_const = param->is_const;
+        sig_sym->location = param->location;
+
+        vector_push(&func_sym->parameters, &sig_sym);
     }
 
     const bool returns_value = analyze_statement(analyzer, func->body, func->return_type, func->return_pointer_level);

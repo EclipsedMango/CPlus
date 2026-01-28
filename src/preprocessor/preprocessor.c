@@ -139,14 +139,16 @@ static char* process_line(Preprocessor *prep, const char *line) {
             parse_define_directive(prep, line + 6);
             return NULL;
         }
+
         if (strncmp(line, "undef", 5) == 0) {
             // TODO: Parse undef
             return NULL;
         }
+
         if (strncmp(line, "include", 7) == 0) {
             return parse_include_directive(prep, line + 7);
         }
-        // ddd more directives such as #ifdef, #include, etc.
+        // ddd more directives such as #ifdef, etc.
     }
 
     return expand_macros(prep, line);

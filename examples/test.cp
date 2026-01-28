@@ -27,6 +27,7 @@ void increment() { counter = counter + 1; }
 
 int main() {
     print("Hello World!\n");
+    __cplus_print_("This is a builtin!\n");
 
     int status = 0;
 

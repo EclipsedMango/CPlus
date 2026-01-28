@@ -18,6 +18,7 @@ typedef struct Symbol {
     char *name;
     SymbolKind kind;
     TypeKind type;
+    Vector parameters;
     int pointer_level;
     bool is_const;
     SourceLocation location;

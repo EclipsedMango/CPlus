@@ -163,6 +163,23 @@ static LLVMValueRef convert_to_type(LLVMValueRef value, TypeKind from_type, Type
     return value;
 }
 
+static void codegen_declare_builtins(void) {
+    // printf
+    LLVMTypeRef print_args[] = { LLVMPointerType(LLVMInt8TypeInContext(context), 0) };
+    LLVMTypeRef print_type = LLVMFunctionType(LLVMInt32TypeInContext(context), print_args, 1, 1 );
+    LLVMAddFunction(module, "__cplus_print_", print_type);
+
+    // malloc
+    LLVMTypeRef malloc_args[] = { LLVMInt64TypeInContext(context) };
+    LLVMTypeRef malloc_type = LLVMFunctionType(
+        LLVMPointerType(LLVMInt8TypeInContext(context), 0),
+        malloc_args,
+        1,
+        0
+    );
+    LLVMAddFunction(module, "__cplus__malloc_", malloc_type);
+}
+
 static LLVMValueRef codegen_lvalue_address(const ExprNode *expr) {
     if (expr->kind == EXPR_VAR) {
         const LLVMValueRef var = lookup_var(expr->text);
@@ -1428,6 +1445,8 @@ void codegen_program_llvm(const ProgramNode* program, const char* output_file) {
     context = LLVMContextCreate();
     module = LLVMModuleCreateWithNameInContext("my_module", context);
     builder = LLVMCreateBuilderInContext(context);
+
+    codegen_declare_builtins();
 
     // global variables
     for (int i = 0; i < program->global_count; ++i) {
