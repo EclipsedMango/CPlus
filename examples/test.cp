@@ -25,9 +25,17 @@ int** get_ptr_ptr(int** p) {
 int counter = 0;
 void increment() { counter = counter + 1; }
 
-int main() {
+int main(int argc, char[] *argv) {
     print("Hello World!\n");
     __cplus_print_("This is a builtin!\n");
+
+    string eee = "hello";
+    char* ee = " world!\n";
+    string e = eee + ee;
+    print_char(e);
+
+    string arg1 = argv[1];
+    print_char(arg1);
 
     int status = 0;
 

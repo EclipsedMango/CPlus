@@ -80,7 +80,20 @@ void parse_parameter_list(Parser *p, ParamNode **params_out, int *count_out) {
         const TypeKind type = token_to_typekind(p, type_tok.type);
         parser_advance(p);
 
+
         int pointer_level = 0;
+        int array_size = 0;
+        if (parser_current_token(p).type == TOK_LSQUARE) {
+            parser_advance(p);
+            if (parser_current_token(p).type == TOK_NUMBER) {
+                array_size = atoi(parser_current_token(p).lexeme);
+                parser_advance(p);
+            }
+
+            pointer_level++;
+            parser_expect(p, TOK_RSQUARE);
+        }
+
         while (parser_current_token(p).type == TOK_ASTERISK) {
             pointer_level++;
             parser_advance(p);
@@ -92,6 +105,7 @@ void parse_parameter_list(Parser *p, ParamNode **params_out, int *count_out) {
         ParamNode param = {
             .type = type,
             .pointer_level = pointer_level,
+            .array_size = array_size,
             .name = strdup(name_tok.lexeme),
             .is_const = param_is_const,
             .location = type_tok.location

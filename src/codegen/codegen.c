@@ -178,6 +178,17 @@ static void codegen_declare_builtins(void) {
         0
     );
     LLVMAddFunction(module, "__cplus__malloc_", malloc_type);
+
+    LLVMTypeRef string_type = LLVMPointerType(LLVMInt8TypeInContext(context), 0);
+    LLVMTypeRef concat_args[] = { string_type, string_type };
+    LLVMTypeRef concat_type = LLVMFunctionType(
+        string_type,
+        concat_args,
+        2,
+        0
+    );
+
+    LLVMAddFunction(module, "__cplus_str_concat", concat_type);
 }
 
 static LLVMValueRef codegen_lvalue_address(const ExprNode *expr) {
@@ -376,6 +387,20 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
 
             switch (expr->binop.op) {
                 case BIN_ADD: {
+                    bool l_is_str = (expr->binop.left->type == TYPE_STRING) || (expr->binop.left->type == TYPE_CHAR && expr->binop.left->pointer_level == 1);
+                    bool r_is_str = (expr->binop.right->type == TYPE_STRING) || (expr->binop.right->type == TYPE_CHAR && expr->binop.right->pointer_level == 1);
+                    if (l_is_str && r_is_str) {
+                        LLVMValueRef func = LLVMGetNamedFunction(module, "__cplus_str_concat");
+                        if (!func) {
+                            fprintf(stderr, "Codegen Error: __cplus_str_concat not found\n");
+                            exit(1);
+                        }
+
+                        LLVMValueRef args[] = { left, right };
+                        return LLVMBuildCall2(builder, LLVMGlobalGetValueType(func), func, args, 2, "concat_res");
+                    }
+
+
                     LLVMTypeRef left_type = LLVMTypeOf(left);
                     LLVMTypeRef right_type = LLVMTypeOf(right);
 

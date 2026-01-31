@@ -1,6 +1,7 @@
 #ifndef C__AST_H
 #define C__AST_H
 
+#include <stdbool.h>
 #include <stddef.h>
 
 #include "../util/common.h"
@@ -176,6 +177,7 @@ typedef struct GlobalVarNode {
 typedef struct ParamNode {
     TypeKind type;
     int pointer_level;
+    int array_size;
     SourceLocation location;
     char *name;
     int is_const;

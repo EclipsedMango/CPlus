@@ -4,6 +4,11 @@
 #include <string.h>
 
 void register_builtins(Scope *global_scope) {
+    Symbol *print_sym = create_print_func();
+    scope_add_symbol(global_scope, print_sym);
+}
+
+Symbol* create_print_func() {
     Symbol *print_sym = malloc(sizeof(Symbol));
     print_sym->name = strdup("__cplus_print_");
     print_sym->kind = SYM_FUNCTION;
@@ -20,6 +25,5 @@ void register_builtins(Scope *global_scope) {
     arg1->is_const = true;
 
     vector_push(&print_sym->parameters, &arg1);
-
-    scope_add_symbol(global_scope, print_sym);
+    return print_sym;
 }

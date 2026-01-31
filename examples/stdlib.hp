@@ -47,14 +47,23 @@ void free(void* ptr, int length) {
 int strlen(char* str) {
     int len = 0;
     while (*str != 0) {
-        str = str + 1;
-        len = len + 1;
+        str++;
+        len++;
     }
 
     return len;
 }
 
 void print(string msg) {
+    int len = strlen(msg);
+    asm("mov rax, 1\n\t mov rdi, 1\n\t mov rsi, $0\n\t mov rdx, $1\n\t syscall"
+        :
+        : "r"(msg), "r"(len)
+        : "rax", "rdi", "rsi", "rdx"
+    );
+}
+
+void print_char(char* msg) {
     int len = strlen(msg);
     asm("mov rax, 1\n\t mov rdi, 1\n\t mov rsi, $0\n\t mov rdx, $1\n\t syscall"
         :

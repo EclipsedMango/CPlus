@@ -229,6 +229,15 @@ static void analyze_expression(SemanticAnalyzer *analyzer, ExprNode *expr) {
                     break;
                 }
 
+                const bool l_is_str = (lhs == TYPE_STRING) || (lhs == TYPE_CHAR && expr->binop.left->pointer_level == 1);
+                const bool r_is_str = (rhs == TYPE_STRING) || (rhs == TYPE_CHAR && expr->binop.right->pointer_level == 1);
+
+                if (expr->binop.op == BIN_ADD && l_is_str && r_is_str) {
+                    expr->type = TYPE_STRING;
+                    expr->pointer_level = 0;
+                    break;
+                }
+
                 if (!is_numeric_type(lhs) || !is_numeric_type(rhs)) {
                     diag_error(analyzer->diagnostics, expr->location,
                               "Arithmetic operator requires numeric types. Got '%s' and '%s'",
@@ -337,7 +346,14 @@ static void analyze_expression(SemanticAnalyzer *analyzer, ExprNode *expr) {
                 const Symbol *param_sym = *param_ptr;
 
                 if (!types_compatible_with_pointers(param_sym->type, param_sym->pointer_level, arg_expr->type, arg_expr->pointer_level)) {
-                    diag_error(analyzer->diagnostics, arg_expr->location, "%s function argument %d mismatch: Expected '%s', got '%s'", func_sym->name, i + 1, type_to_string(param_sym->type), type_to_string(arg_expr->type));
+                    diag_error(analyzer->diagnostics, arg_expr->location, "%s function argument %d mismatch: Expected '%s%d', got '%s%d'",
+                        func_sym->name,
+                        i + 1,
+                        type_to_string(param_sym->type),
+                        param_sym->pointer_level,
+                        type_to_string(arg_expr->type),
+                        arg_expr->pointer_level
+                    );
                     break;
                 }
             }

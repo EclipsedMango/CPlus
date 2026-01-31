@@ -1,5 +1,6 @@
 #ifndef C__MAP_H
 #define C__MAP_H
+#include <stdbool.h>
 
 typedef struct Entry {
     char *key;

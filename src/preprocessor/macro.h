@@ -1,6 +1,8 @@
 #ifndef C__MACRO_H
 #define C__MACRO_H
 
+#include <stdbool.h>
+
 #include "../util/common.h"
 #include "../util/map.h"
 #include "../util/vector.h"
