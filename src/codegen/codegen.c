@@ -14,6 +14,7 @@
 typedef struct {
     char *name;
     LLVMValueRef value;
+    LLVMTypeRef llvm_type;
     TypeKind type;
     int pointer_level;
     int array_size;
@@ -32,7 +33,7 @@ static LLVMBasicBlockRef current_continue_target = NULL;
 
 static LLVMValueRef codegen_expression(const ExprNode* expr);
 
-static void add_local_var(const char *name, const LLVMValueRef value, const TypeKind type, const int pointer_level, int array_size) {
+static void add_local_var(const char *name, const LLVMValueRef value,  const LLVMTypeRef llvm_type, const TypeKind type, const int pointer_level, int array_size) {
     if (local_var_count >= local_var_capacity) {
         local_var_capacity = local_var_capacity == 0 ? 16 : local_var_capacity * 2;
         local_vars = realloc(local_vars, sizeof(CodegenSymbol) * local_var_capacity);
@@ -41,12 +42,13 @@ static void add_local_var(const char *name, const LLVMValueRef value, const Type
     local_vars[local_var_count].name = strdup(name);
     local_vars[local_var_count].value = value;
     local_vars[local_var_count].type = type;
+    local_vars[local_var_count].llvm_type = llvm_type;
     local_vars[local_var_count].pointer_level = pointer_level;
     local_vars[local_var_count].array_size = array_size;
     local_var_count++;
 }
 
-static void add_global_var(const char *name, const LLVMValueRef value, const TypeKind type, const int pointer_level, int array_size) {
+static void add_global_var(const char *name, const LLVMValueRef value, const LLVMTypeRef llvm_type, const TypeKind type, const int pointer_level, int array_size) {
     if (global_var_count >= global_var_capacity) {
         global_var_capacity = global_var_capacity == 0 ? 16 : global_var_capacity * 2;
         global_vars = realloc(global_vars, sizeof(CodegenSymbol) * global_var_capacity);
@@ -55,6 +57,7 @@ static void add_global_var(const char *name, const LLVMValueRef value, const Typ
     global_vars[global_var_count].name = strdup(name);
     global_vars[global_var_count].value = value;
     global_vars[global_var_count].type = type;
+    global_vars[global_var_count].llvm_type = llvm_type;
     global_vars[global_var_count].pointer_level = pointer_level;
     global_vars[global_var_count].array_size = array_size;
     global_var_count++;
@@ -164,31 +167,111 @@ static LLVMValueRef convert_to_type(LLVMValueRef value, TypeKind from_type, Type
 }
 
 static void codegen_declare_builtins(void) {
-    // printf
-    LLVMTypeRef print_args[] = { LLVMPointerType(LLVMInt8TypeInContext(context), 0) };
-    LLVMTypeRef print_type = LLVMFunctionType(LLVMInt32TypeInContext(context), print_args, 1, 1 );
-    LLVMAddFunction(module, "__cplus_print_", print_type);
+    LLVMTypeRef void_t = LLVMVoidTypeInContext(context);
+    LLVMTypeRef i32_t = LLVMInt32TypeInContext(context);
+    LLVMTypeRef float_t = LLVMFloatTypeInContext(context);
+    LLVMTypeRef bool_t = LLVMInt1TypeInContext(context);
+    LLVMTypeRef i8_t = LLVMInt8TypeInContext(context);
+    LLVMTypeRef str_t = LLVMPointerType(i8_t, 0);
+    LLVMTypeRef void_ptr_t = LLVMPointerType(i8_t, 0);
 
-    // malloc
-    LLVMTypeRef malloc_args[] = { LLVMInt64TypeInContext(context) };
-    LLVMTypeRef malloc_type = LLVMFunctionType(
-        LLVMPointerType(LLVMInt8TypeInContext(context), 0),
-        malloc_args,
-        1,
-        0
-    );
-    LLVMAddFunction(module, "__cplus__malloc_", malloc_type);
+    LLVMTypeRef input_type = LLVMFunctionType(str_t, NULL, 0, 0);
+    LLVMValueRef input_func = LLVMAddFunction(module, "__cplus_input_", input_type);
+    add_global_var("__cplus_input_", input_func, input_type, TYPE_STRING, 0, 0);
 
-    LLVMTypeRef string_type = LLVMPointerType(LLVMInt8TypeInContext(context), 0);
-    LLVMTypeRef concat_args[] = { string_type, string_type };
-    LLVMTypeRef concat_type = LLVMFunctionType(
-        string_type,
-        concat_args,
-        2,
-        0
-    );
+    LLVMTypeRef print_args[] = { str_t };
+    LLVMTypeRef print_type = LLVMFunctionType(void_t, print_args, 1, 0);
+    LLVMValueRef print_func = LLVMAddFunction(module, "__cplus_print_", print_type);
+    add_global_var("__cplus_print_", print_func, print_type, TYPE_VOID, 0, 0);
 
-    LLVMAddFunction(module, "__cplus_str_concat", concat_type);
+    LLVMTypeRef to_int_args[] = { str_t };
+    LLVMTypeRef to_int_type = LLVMFunctionType(i32_t, to_int_args, 1, 0);
+    LLVMValueRef to_int_func = LLVMAddFunction(module, "__cplus_to_int_", to_int_type);
+    add_global_var("__cplus_to_int_", to_int_func, to_int_type, TYPE_INT, 0, 0);
+
+    LLVMTypeRef to_float_args[] = { str_t };
+    LLVMTypeRef to_float_type = LLVMFunctionType(float_t, to_float_args, 1, 0);
+    LLVMValueRef to_float_func = LLVMAddFunction(module, "__cplus_to_float_", to_float_type);
+    add_global_var("__cplus_to_float_", to_float_func, to_float_type, TYPE_FLOAT, 0, 0);
+
+    LLVMTypeRef i2s_args[] = { i32_t };
+    LLVMTypeRef i2s_type = LLVMFunctionType(str_t, i2s_args, 1, 0);
+    LLVMValueRef i2s_func = LLVMAddFunction(module, "__cplus_int_to_string_", i2s_type);
+    add_global_var("__cplus_int_to_string_", i2s_func, i2s_type, TYPE_STRING, 0, 0);
+
+    LLVMTypeRef f2s_args[] = { float_t };
+    LLVMTypeRef f2s_type = LLVMFunctionType(str_t, f2s_args, 1, 0);
+    LLVMValueRef f2s_func = LLVMAddFunction(module, "__cplus_float_to_string_", f2s_type);
+    add_global_var("__cplus_float_to_string_", f2s_func, f2s_type, TYPE_STRING, 0, 0);
+
+    LLVMTypeRef concat_args[] = { str_t, str_t };
+    LLVMTypeRef concat_type = LLVMFunctionType(str_t, concat_args, 2, 0);
+    LLVMValueRef concat_func = LLVMAddFunction(module, "__cplus_str_concat", concat_type);
+    add_global_var("__cplus_str_concat", concat_func, concat_type, TYPE_STRING, 0, 0);
+
+    LLVMTypeRef strcmp_args[] = { str_t, str_t };
+    LLVMTypeRef strcmp_type = LLVMFunctionType(bool_t, strcmp_args, 2, 0);
+    LLVMValueRef strcmp_func = LLVMAddFunction(module, "__cplus_strcmp_", strcmp_type);
+    add_global_var("__cplus_strcmp_", strcmp_func, strcmp_type, TYPE_BOOLEAN, 0, 0);
+
+    LLVMTypeRef substr_args[] = { str_t, i32_t, i32_t };
+    LLVMTypeRef substr_type = LLVMFunctionType(str_t, substr_args, 3, 0);
+    LLVMValueRef substr_func = LLVMAddFunction(module, "__cplus_substr_", substr_type);
+    add_global_var("__cplus_substr_", substr_func, substr_type, TYPE_STRING, 0, 0);
+
+    LLVMTypeRef char_at_args[] = { str_t, i32_t };
+    LLVMTypeRef char_at_type = LLVMFunctionType(i8_t, char_at_args, 2, 0);
+    LLVMValueRef char_at_func = LLVMAddFunction(module, "__cplus_char_at_", char_at_type);
+    add_global_var("__cplus_char_at_", char_at_func, char_at_type, TYPE_CHAR, 0, 0);
+
+    LLVMTypeRef rand_type = LLVMFunctionType(i32_t, NULL, 0, 0);
+    LLVMValueRef rand_func = LLVMAddFunction(module, "__cplus_random_", rand_type);
+    add_global_var("__cplus_random_", rand_func, rand_type, TYPE_INT, 0, 0);
+
+    LLVMTypeRef time_type = LLVMFunctionType(i32_t, NULL, 0, 0);
+    LLVMValueRef time_func = LLVMAddFunction(module, "__cplus_time_", time_type);
+    add_global_var("__cplus_time_", time_func, time_type, TYPE_INT, 0, 0);
+
+    LLVMTypeRef seed_args[] = { i32_t };
+    LLVMTypeRef seed_type = LLVMFunctionType(void_t, seed_args, 1, 0);
+    LLVMValueRef seed_func = LLVMAddFunction(module, "__cplus_seed_", seed_type);
+    add_global_var("__cplus_seed_", seed_func, seed_type, TYPE_VOID, 0, 0);
+
+    LLVMTypeRef sqrt_args[] = { float_t };
+    LLVMTypeRef sqrt_type = LLVMFunctionType(float_t, sqrt_args, 1, 0);
+    LLVMValueRef sqrt_func = LLVMAddFunction(module, "__cplus_sqrt_", sqrt_type);
+    add_global_var("__cplus_sqrt_", sqrt_func, sqrt_type, TYPE_FLOAT, 0, 0);
+
+    LLVMTypeRef pow_args[] = { float_t, float_t };
+    LLVMTypeRef pow_type = LLVMFunctionType(float_t, pow_args, 2, 0);
+    LLVMValueRef pow_func = LLVMAddFunction(module, "__cplus_pow_", pow_type);
+    add_global_var("__cplus_pow_", pow_func, pow_type, TYPE_FLOAT, 0, 0);
+
+    LLVMTypeRef sys_args[] = { str_t };
+    LLVMTypeRef sys_type = LLVMFunctionType(i32_t, sys_args, 1, 0);
+    LLVMValueRef sys_func = LLVMAddFunction(module, "__cplus_system_", sys_type);
+    add_global_var("__cplus_system_", sys_func, sys_type, TYPE_INT, 0, 0);
+
+    LLVMTypeRef panic_args[] = { str_t };
+    LLVMTypeRef panic_type = LLVMFunctionType(void_t, panic_args, 1, 0);
+    LLVMValueRef panic_func = LLVMAddFunction(module, "__cplus_panic_", panic_type);
+    add_global_var("__cplus_panic_", panic_func, panic_type, TYPE_VOID, 0, 0);
+
+    LLVMTypeRef memcpy_args[] = { void_ptr_t, void_ptr_t, i32_t };
+    LLVMTypeRef memcpy_type = LLVMFunctionType(void_t, memcpy_args, 3, 0);
+    LLVMValueRef memcpy_func = LLVMAddFunction(module, "__cplus_memcpy_", memcpy_type);
+    add_global_var("__cplus_memcpy_", memcpy_func, memcpy_type, TYPE_VOID, 0, 0);
+
+    LLVMTypeRef memset_args[] = { void_ptr_t, i32_t, i32_t };
+    LLVMTypeRef memset_type = LLVMFunctionType(void_t, memset_args, 3, 0);
+    LLVMValueRef memset_func = LLVMAddFunction(module, "__cplus_memset_", memset_type);
+    add_global_var("__cplus_memset_", memset_func, memset_type, TYPE_VOID, 0, 0);
+
+    LLVMTypeRef realloc_args[] = { void_ptr_t, i32_t };
+    LLVMTypeRef realloc_type = LLVMFunctionType(void_ptr_t, realloc_args, 2, 0);
+    LLVMValueRef realloc_func = LLVMAddFunction(module, "__cplus_realloc_", realloc_type);
+
+    add_global_var("__cplus_realloc_", realloc_func, realloc_type, TYPE_VOID, 1, 0);
 }
 
 static LLVMValueRef codegen_lvalue_address(const ExprNode *expr) {
@@ -390,14 +473,17 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
                     bool l_is_str = (expr->binop.left->type == TYPE_STRING) || (expr->binop.left->type == TYPE_CHAR && expr->binop.left->pointer_level == 1);
                     bool r_is_str = (expr->binop.right->type == TYPE_STRING) || (expr->binop.right->type == TYPE_CHAR && expr->binop.right->pointer_level == 1);
                     if (l_is_str && r_is_str) {
-                        LLVMValueRef func = LLVMGetNamedFunction(module, "__cplus_str_concat");
-                        if (!func) {
-                            fprintf(stderr, "Codegen Error: __cplus_str_concat not found\n");
+                        CodegenSymbol *sym = lookup_global_var_full("__cplus_str_concat");
+                        if (!sym) {
+                            fprintf(stderr, "Codegen Error: __cplus_str_concat not found (symbol missing)\n");
                             exit(1);
                         }
 
+                        LLVMValueRef func = sym->value;
+                        LLVMTypeRef func_type = sym->llvm_type; // Use the stored type!
+
                         LLVMValueRef args[] = { left, right };
-                        return LLVMBuildCall2(builder, LLVMGlobalGetValueType(func), func, args, 2, "concat_res");
+                        return LLVMBuildCall2(builder, func_type, func, args, 2, "concat_res");
                     }
 
 
@@ -603,6 +689,23 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
                     return LLVMBuildICmp(builder, LLVMIntSGE, left, right, "cmptmp");
                 }
                 case BIN_EQUAL: {
+                    bool l_str = (expr->binop.left->type == TYPE_STRING || (expr->binop.left->type == TYPE_CHAR && expr->binop.left->pointer_level == 1));
+                    bool r_str = (expr->binop.right->type == TYPE_STRING || (expr->binop.right->type == TYPE_CHAR && expr->binop.right->pointer_level == 1));
+
+                    if (l_str && r_str) {
+                        CodegenSymbol *sym = lookup_global_var_full("__cplus_strcmp_");
+                        if (!sym) {
+                            fprintf(stderr, "Codegen Error: __cplus_strcmp_ not found (symbol missing)\n");
+                            exit(1);
+                        }
+
+                        LLVMValueRef func = sym->value;
+                        LLVMTypeRef func_type = sym->llvm_type; // Use the stored type!
+
+                        LLVMValueRef args[] = { left, right };
+                        return LLVMBuildCall2(builder, func_type, func, args, 2, "streq");
+                    }
+
                     LLVMTypeRef left_type = LLVMTypeOf(left);
                     if (LLVMGetTypeKind(left_type) == LLVMFloatTypeKind || LLVMGetTypeKind(left_type) == LLVMDoubleTypeKind) {
                         return LLVMBuildFCmp(builder, LLVMRealOEQ, left, right, "cmptmp");
@@ -771,10 +874,21 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
             break;
         }
         case EXPR_CALL: {
-            const LLVMValueRef func = LLVMGetNamedFunction(module, expr->call.function_name);
-            if (!func) {
-                fprintf(stderr, "Codegen error: undefined function '%s'\n", expr->call.function_name);
-                exit(1);
+            CodegenSymbol *sym = lookup_var_full(expr->call.function_name);
+            LLVMValueRef func = NULL;
+            LLVMTypeRef func_type = NULL;
+
+            if (sym) {
+                func = sym->value;
+                func_type = sym->llvm_type;
+            } else {
+                func = LLVMGetNamedFunction(module, expr->call.function_name);
+                if (!func) {
+                    fprintf(stderr, "Codegen error: undefined function '%s'\n", expr->call.function_name);
+                    exit(1);
+                }
+
+                func_type = LLVMGlobalGetValueType(func);
             }
 
             LLVMValueRef *args = malloc(sizeof(LLVMValueRef) * expr->call.arg_count);
@@ -782,9 +896,6 @@ static LLVMValueRef codegen_expression(const ExprNode* expr) {
                 args[i] = codegen_expression(expr->call.args[i]);
             }
 
-            const LLVMTypeRef func_type = LLVMGlobalGetValueType(func);
-
-            // Check if function returns void
             LLVMTypeRef ret_type = LLVMGetReturnType(func_type);
             const char *call_name = (LLVMGetTypeKind(ret_type) == LLVMVoidTypeKind) ? "" : "calltmp";
 
@@ -1038,14 +1149,14 @@ static void codegen_statement(const StmtNode* stmt) {
 
                     init_alloca = LLVMBuildAlloca(builder, var_type, init_stmt->var_decl.name);
                     // Note: Arrays decay to pointers, so store with pointer_level + 1
-                    add_local_var(init_stmt->var_decl.name, init_alloca, init_stmt->var_decl.type, init_stmt->var_decl.pointer_level + 1, init_stmt->var_decl.array_size);
+                    add_local_var(init_stmt->var_decl.name, init_alloca, var_type, init_stmt->var_decl.type, init_stmt->var_decl.pointer_level + 1, init_stmt->var_decl.array_size);
                 } else {
                     var_type = get_llvm_type_with_pointers(
                        init_stmt->var_decl.type,
                        init_stmt->var_decl.pointer_level
                     );
                     init_alloca = LLVMBuildAlloca(builder, var_type, init_stmt->var_decl.name);
-                    add_local_var(init_stmt->var_decl.name, init_alloca, init_stmt->var_decl.type, init_stmt->var_decl.pointer_level, 0);
+                    add_local_var(init_stmt->var_decl.name, init_alloca, var_type, init_stmt->var_decl.type, init_stmt->var_decl.pointer_level, 0);
                 }
 
                 // Initialize the variable if there's an initializer
@@ -1350,9 +1461,12 @@ static void codegen_statement(const StmtNode* stmt) {
                     alloca = existing;
                 } else {
                     alloca = LLVMBuildAlloca(builder, var_type, stmt->var_decl.name);
-                    // Arrays decay to pointers, so we store them with pointer_level + 1
-                    // Track array_size for proper GEP generation later
-                    add_local_var(stmt->var_decl.name, alloca, stmt->var_decl.type, stmt->var_decl.pointer_level + 1, stmt->var_decl.array_size);
+
+                    if (stmt->var_decl.array_size > 0) {
+                        add_local_var(stmt->var_decl.name, alloca, var_type, stmt->var_decl.type, stmt->var_decl.pointer_level + 1, stmt->var_decl.array_size);
+                    } else {
+                        add_local_var(stmt->var_decl.name, alloca, var_type, stmt->var_decl.type, stmt->var_decl.pointer_level, 0);
+                    }
                 }
 
                 // Array initializer support (if provided)
@@ -1373,7 +1487,12 @@ static void codegen_statement(const StmtNode* stmt) {
                     alloca = existing;
                 } else {
                     alloca = LLVMBuildAlloca(builder, var_type, stmt->var_decl.name);
-                    add_local_var(stmt->var_decl.name, alloca, stmt->var_decl.type, stmt->var_decl.pointer_level, 0);
+
+                    if (stmt->var_decl.array_size > 0) {
+                        add_local_var(stmt->var_decl.name, alloca, var_type, stmt->var_decl.type, stmt->var_decl.pointer_level + 1, stmt->var_decl.array_size);
+                    } else {
+                        add_local_var(stmt->var_decl.name, alloca, var_type, stmt->var_decl.type, stmt->var_decl.pointer_level, 0);
+                    }
                 }
 
                 if (stmt->var_decl.initializer) {
@@ -1424,7 +1543,11 @@ static void codegen_function(const FunctionNode* func) {
     const LLVMTypeRef ret_type = get_llvm_type_with_pointers(func->return_type, func->return_pointer_level);
     const LLVMTypeRef func_type = LLVMFunctionType(ret_type, param_types, func->param_count, 0);
 
-    const LLVMValueRef llvm_func = LLVMAddFunction(module, func->name, func_type);
+    const LLVMValueRef llvm_func = LLVMGetNamedFunction(module, func->name);
+    if (!llvm_func) {
+        fprintf(stderr, "Internal error: Function %s not found in pass 2\n", func->name);
+        exit(1);
+    }
 
     // entry block
     const LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(context, llvm_func, "entry");
@@ -1440,7 +1563,7 @@ static void codegen_function(const FunctionNode* func) {
         LLVMValueRef alloca = LLVMBuildAlloca(builder, param_type, func->params[i].name);
         LLVMBuildStore(builder, param, alloca);
 
-        add_local_var(func->params[i].name, alloca, func->params[i].type, func->params[i].pointer_level, 0);
+        add_local_var(func->params[i].name, alloca, param_type, func->params[i].type, func->params[i].pointer_level, 0);
     }
 
     codegen_statement(func->body);
@@ -1514,7 +1637,24 @@ void codegen_program_llvm(const ProgramNode* program, const char* output_file) {
             LLVMSetGlobalConstant(llvm_global, 1);
         }
 
-        add_global_var(global_var->name, llvm_global, global_var->kind, global_var->pointer_level, global_var->array_size);
+        add_global_var(global_var->name, llvm_global, var_type, global_var->kind, global_var->pointer_level, global_var->array_size);
+    }
+
+    for (int i = 0; i < program->function_count; i++) {
+        FunctionNode *func = program->functions[i];
+
+        LLVMTypeRef *param_types = malloc(sizeof(LLVMTypeRef) * func->param_count);
+        for (int j = 0; j < func->param_count; j++) {
+            param_types[j] = get_llvm_type_with_pointers(func->params[j].type, func->params[j].pointer_level);
+        }
+
+        LLVMTypeRef ret_type = get_llvm_type_with_pointers(func->return_type, func->return_pointer_level);
+        LLVMTypeRef func_type = LLVMFunctionType(ret_type, param_types, func->param_count, 0);
+
+        // Add to module
+        LLVMAddFunction(module, func->name, func_type);
+
+        free(param_types);
     }
 
     // code for each function

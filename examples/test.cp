@@ -27,15 +27,18 @@ void increment() { counter = counter + 1; }
 
 int main(int argc, char[] *argv) {
     print("Hello World!\n");
-    __cplus_print_("This is a builtin!\n");
+    print("This is a builtin!\n");
 
     string eee = "hello";
+    string aaa = "hello";
+
     char* ee = " world!\n";
     string e = eee + ee;
-    print_char(e);
+    print(e);
 
-    string arg1 = argv[1];
-    print_char(arg1);
+    if (eee == aaa) {
+        print("strcmp works!\n");
+    }
 
     int status = 0;
 
