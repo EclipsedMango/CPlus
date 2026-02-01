@@ -63,8 +63,8 @@ int main() {
 - **Step 1:** Compile the C+ compiler
   - ````./compile.sh````
 
-- **Step 2:** Compile your program, link your program and then run your program
-  - ````./compiler examples/test.cp && gcc output.o -o program && ./program````
+- **Step 2:** Compile your program, link your program and then run your program (remove the first part of the cmd and runtime.o in the last to remove builtin functions)
+  - ````gcc -c src/runtime/runtime.c -o runtime.o && ./compiler examples/test.cp && gcc output.o runtime.o -o program && ./program````
 
 - **Step 3:** Celebrate!
   - if done correctly everything should work! and now you have a **C+** program!
