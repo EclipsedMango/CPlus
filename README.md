@@ -32,6 +32,7 @@ This project is a **work in progress!** Currently supported features:
 - #include directive
 - basic casting
 - incrementing, decrementing, +=, -=, *=, /=, %= expressions
+- builtin functions
 
 -----
 ### Getting started
